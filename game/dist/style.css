@@ -18,3 +18,8 @@ header{z-index:10}.gyro-panel select,.gyro-panel input{font-family:inherit}
 .gyro-axis-values b{display:block;margin-top:7px;font:18px monospace;white-space:nowrap}.axis-x{color:#ff7987}.axis-y{color:#86efac}.axis-z{color:#78b9ff}
 .gyro-model-help{margin:9px 12px;font-size:10px;line-height:1.7;color:#8ca6b7}
 @media(max-width:400px){.gyro-model{height:220px}.gyro-axis-values b{font-size:16px}.gyro-model-heading{font-size:11px}}
+
+.gyro-model-switch{display:flex;align-items:center;gap:6px;padding:12px 12px 0}
+.gyro-model-switch button{font-size:11px;padding:6px 14px;border:1px solid #56788d55;border-radius:5px;background:transparent;color:#8ca6b7}
+.gyro-model-switch button[aria-pressed=true]{background:#86f8df18;color:#86f8df;border-color:#86f8df70}
+#gyroModelLoading{font-size:10px;color:#dfbf84;line-height:1.5;flex:1}

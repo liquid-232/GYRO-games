@@ -1,5 +1,6 @@
 import * as T from './vendor/three.module.js';
 import { createGyroModel, createBodyAxes, poseQuaternion } from './gyro-model.js';
+import { createAircraftPoseModel } from './aircraft-model.js';
 import { CALIBRATING, SENSOR_OK } from './ble-protocol.js';
 
 function textTexture(text, color) {
@@ -28,7 +29,11 @@ export class GyroPoseView {
     this.scene.add(new T.HemisphereLight(0xdcefff, 0x385376, 3));
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
-    this.body = new T.Group(); this.body.add(createGyroModel(boardLabel), createBodyAxes(axisLabel)); this.scene.add(this.body);
+    this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftLoad = null;
+    this.requestedModel = 'board'; this.modelKind = 'board'; this.disposed = false;
+    this.body = new T.Group(); this.body.add(this.board, createBodyAxes(axisLabel)); this.scene.add(this.body);
+    this.$('gyroShowBoard').onclick = () => this.selectModel('board');
+    this.$('gyroShowAircraft').onclick = () => this.selectModel('aircraft');
     const grid = new T.GridHelper(5, 20, 0x33586c, 0x1a3547); grid.rotation.x = Math.PI / 2; grid.position.z = -.95;
     grid.material.transparent = true; grid.material.opacity = .5; this.scene.add(grid);
     this.target = new T.Quaternion(); this.hasPose = false;
@@ -43,6 +48,54 @@ export class GyroPoseView {
     });
     this.$('gyroModelCanvas').addEventListener('webglcontextrestored', () => { this.contextLost = false; if (this.visible && !document.hidden) this.draw(); });
     window.addEventListener('pagehide', () => this.dispose(), { once: true });
+  }
+  async selectModel(kind) {
+    this.requestedModel = kind;
+    this.$('gyroModelLoading').textContent = '';
+    if (kind === 'aircraft' && !this.aircraft) {
+      this.$('gyroModelLoading').textContent = '正在装载飞机…';
+      this.$('gyroShowAircraft').disabled = true;
+      try {
+        if (!this.aircraftLoad) this.aircraftLoad = this.loadAircraft();
+        await this.aircraftLoad;
+      } catch {
+        if (!this.disposed && this.requestedModel === 'aircraft') this.$('gyroModelLoading').textContent = '装载失败，点击飞机重试';
+        return;
+      } finally {
+        this.aircraftLoad = null;
+        if (!this.disposed) this.$('gyroShowAircraft').disabled = false;
+      }
+    }
+    if (this.disposed || this.requestedModel !== kind) return;
+    this.modelKind = kind;
+    this.board.visible = kind === 'board';
+    if (this.aircraft) this.aircraft.visible = kind === 'aircraft';
+    this.$('gyroModelLoading').textContent = '';
+    this.$('gyroShowBoard').setAttribute('aria-pressed', String(kind === 'board'));
+    this.$('gyroShowAircraft').setAttribute('aria-pressed', String(kind === 'aircraft'));
+    this.$('gyroModelTitle').textContent = kind === 'board' ? 'MPU6050 · 实时姿态' : 'F-22 · 实时姿态';
+    this.$('gyroModelWatermark').textContent = kind === 'board' ? 'GY-521 / BODY AXES' : 'F-22 RAPTOR / BODY AXES';
+    this.$('gyroModelCanvas').setAttribute('aria-label', `${kind === 'board' ? 'MPU6050' : 'F-22 飞机'}三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴`);
+    this.$('gyroModelAxesHelp').textContent = kind === 'board'
+      ? '三轴交于芯片中心，箭头指向正方向。X 指向安装孔一侧，Y 指向 VCC 一端，Z 垂直芯片面向上。浅色网格为水平参考。'
+      : '三轴交于机身中心，箭头指向正方向。X 指向机头，Y 指向左翼，Z 指向机背上方。浅色网格为水平参考。';
+  }
+  async loadAircraft() {
+    const response = await fetch('assets/airplane-f22.glb');
+    if (!response.ok) throw Error(`Aircraft HTTP ${response.status}`);
+    const buffer = await response.arrayBuffer();
+    if (this.disposed) return;
+    const aircraft = createAircraftPoseModel(buffer);
+    aircraft.visible = false; this.body.add(aircraft); this.aircraft = aircraft;
+    // Local studio reflections preserve the metal finish of the game's aircraft.
+    const studio = new T.Scene(); studio.background = new T.Color(0x344a5d);
+    for (const [x,y,z,color] of [[-8,9,0,0xdcf6ff],[8,5,2,0xffe0b0],[0,3,-10,0x78bfff]]) {
+      const panel = new T.Mesh(new T.PlaneGeometry(7,17), new T.MeshBasicMaterial({color,side:T.DoubleSide}));
+      panel.position.set(x,y,z); panel.lookAt(0,0,0); studio.add(panel);
+    }
+    const pmrem = new T.PMREMGenerator(this.renderer);
+    this.environment = pmrem.fromScene(studio,.02); this.scene.environment = this.environment.texture; pmrem.dispose();
+    studio.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
   }
   setState(text, live) {
     const node = this.$('gyroModelState'); if (node.textContent !== text) node.textContent = text;
@@ -87,9 +140,9 @@ export class GyroPoseView {
     this.frame = requestAnimationFrame(() => this.draw());
   }
   dispose() {
-    this.stop(); this.visible = false; this.observer.disconnect(); document.removeEventListener('visibilitychange', this.onVisibility);
+    this.disposed = true; this.stop(); this.visible = false; this.observer.disconnect(); document.removeEventListener('visibilitychange', this.onVisibility);
     const geometries = new Set(), materials = new Set();
     this.scene.traverse(object => { if (object.geometry) geometries.add(object.geometry); if (object.material) materials.add(object.material); });
-    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => { material.map?.dispose(); material.dispose(); }); this.renderer.dispose();
+    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => { material.map?.dispose(); material.dispose(); }); this.environment?.dispose(); this.renderer.dispose();
   }
 }
