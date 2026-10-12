@@ -1,0 +1,8 @@
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+__pycache__/
+*.pyc
+firmware/*-latest.log
+game/.runtime/

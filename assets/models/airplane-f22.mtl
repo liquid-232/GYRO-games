@@ -1,0 +1,55 @@
+newmtl Airframe
+Kd 0.48 0.53 0.6
+Ks 0.4448 0.4908 0.5552
+Ns 30.00
+Pm 0.92
+Pr 0.25
+illum 2
+
+newmtl Wing_panels
+Kd 0.58 0.63 0.7
+Ks 0.5529999999999999 0.6004999999999999 0.6669999999999999
+Ns 21.78
+Pm 0.95
+Pr 0.29
+illum 2
+
+newmtl Dark_panels
+Kd 0.25 0.3 0.37
+Ks 0.2185 0.261 0.3205
+Ns 13.43
+Pm 0.85
+Pr 0.36
+illum 2
+
+newmtl Canopy_gold
+Kd 0.68 0.43 0.12
+Ks 0.39200000000000007 0.2545 0.084
+Ns 136.89
+Pm 0.55
+Pr 0.12
+illum 2
+
+newmtl Canopy_frame
+Kd 0.12 0.15 0.2
+Ks 0.112 0.139 0.18400000000000002
+Ns 39.32
+Pm 0.9
+Pr 0.22
+illum 2
+
+newmtl Exhaust_metal
+Kd 0.32 0.29 0.25
+Ks 0.32 0.29 0.25
+Ns 25.43
+Pm 1.0
+Pr 0.27
+illum 2
+
+newmtl Intake_darkness
+Kd 0.025 0.032 0.04
+Ks 0.04 0.04 0.04
+Ns 0.22
+Pm 0.0
+Pr 0.95
+illum 2

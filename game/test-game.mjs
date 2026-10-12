@@ -1,0 +1,24 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+import * as T from './dist/vendor/three.module.js';
+const source=fs.readFileSync(new URL('./dist/game.js',import.meta.url),'utf8');
+const elements=new Map();
+const $=id=>{if(!elements.has(id))elements.set(id,{textContent:'',innerHTML:'',style:{},children:Array.from({length:5},()=>({classList:{toggle(){}}})),classList:{add(){},remove(){},toggle(){}},setAttribute(){}});return elements.get(id);};
+const ctx=vm.createContext({T,console,assert,Math,$,gyro:{sample(){return null;},canFly:true},permitFlight(){return true;},localStorage:{setItem(){}},document:{body:{classList:{add(){},remove(){}}}},tone(){}});
+vm.runInContext(`const clamp=T.MathUtils.clamp;const world=new T.Group(),camera=new T.PerspectiveCamera(),grid=new T.Group(),skyline=[],objects=[],shots=[],hostile=[],effects=[];const aircraft=new T.Group();let mode='menu',autoFire=true,keys=new Set(),touch={x:0,y:0,fire:false},hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=99,shotTimer=0,noticeTimer=0,shake=0,best=0;const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};const materials={rock:new T.MeshBasicMaterial(),coin:new T.MeshBasicMaterial(),laser:new T.MeshBasicMaterial(),red:new T.MeshBasicMaterial(),enemy:new T.MeshBasicMaterial()};const geo={rock:new T.IcosahedronGeometry(1),coin:new T.TorusGeometry(),shot:new T.CylinderGeometry(),particle:new T.OctahedronGeometry(),box:new T.BoxGeometry(),enemyBody:new T.ConeGeometry(),enemyLight:new T.SphereGeometry(),enemyBullet:new T.SphereGeometry()};`,ctx);
+vm.runInContext(source.slice(source.indexOf('function notice('),source.indexOf('async function boot(')),ctx);
+vm.runInContext(`
+reset();assert.equal(mode,'playing');assert.equal(hp,5);assert.equal(objects.filter(o=>o.type==='coin').length,7);
+clearList(objects);autoFire=false;spawnTimer=99;invuln=0;score=0;
+addCoin(0,5,7);tick(.01);assert.equal(coins,1);assert.ok(score>=25);assert.equal(objects.length,0);
+addRock(0,5,7,1.8);tick(.01);assert.equal(hp,4);tick(.01);assert.equal(hp,4,'invulnerability prevents stacked damage');clearList(objects);
+invuln=0;addEnemy(0,5,-4);objects[0].hp=2;fire();for(let i=0;i<12;i++)tick(.01);assert.equal(kills,1,'paired shots destroy target');assert.equal(objects.filter(o=>o.type==='coin').length,3);
+pause();assert.equal(mode,'paused');pause();assert.equal(mode,'playing');
+keys.add('KeyD');for(let i=0;i<150;i++)tick(.01);assert.equal(player.x,10);keys.clear();
+elapsed=25;tick(.01);assert.equal(level,2);assert.equal(speed,29);
+hp=1;invuln=0;damage();assert.equal(mode,'over');assert.equal(hp,0);assert.ok($('report').innerHTML.includes('击毁目标'));
+reset();assert.equal(hp,5);assert.equal(coins,0);assert.equal(kills,0);assert.equal(hostile.length,0);assert.equal(effects.length,0);
+toggleFire();assert.equal(autoFire,true);toggleFire();assert.equal(autoFire,false);
+console.log('PASS: start/reset, coins, obstacle damage, invulnerability, swept shot hit, enemy destruction/drop, pause/resume, bounds, difficulty, game over, fire mode.');
+`,ctx);

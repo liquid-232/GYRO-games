@@ -1,0 +1,17 @@
+{
+  "idf.currentSetup": "C:\\ESP-IDF-Offline\\6.0.2\\v6.0.2\\esp-idf",
+  "idf.eimIdfJsonPath": "C:\\ESP-IDF-Offline\\6.0.2\\tools\\eim_idf.json",
+  "idf.port": "COM29",
+  "idf.monitorPort": "COM29",
+  "idf.flashType": "UART",
+  "idf.openOcdConfigs": ["board/esp32c3-builtin.cfg"],
+  "idf.buildPath": "${workspaceFolder}/build",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "terminal.integrated.profiles.windows": {
+    "ESP-IDF 6.0.2": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": ["-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ". 'C:\\Espressif\\tools\\Microsoft.v6.0.2.PowerShell_profile.ps1'"]
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "ESP-IDF 6.0.2"
+}
