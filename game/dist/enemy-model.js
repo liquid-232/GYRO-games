@@ -1,5 +1,5 @@
 import * as T from './vendor/three.module.js';
-import { createPanelLines, su35PanelPaths } from './panel-lines.js';
+import { applyAirframeSurface } from './airframe-surface.js';
 
 // Original visual game asset inspired by the Su-35S silhouette; +Z is the nose.
 // Shared immutable geometry/materials keep repeated enemies inexpensive.
@@ -98,7 +98,7 @@ function buildTemplate() {
     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setAttribute('normal',new T.Float32BufferAttribute(normals,3));g.computeBoundingSphere();
     const mesh=new T.Mesh(g,mat);mesh.name='su35-'+name;group.add(mesh);
   }
-  group.add(createPanelLines(group.children.filter(mesh=>['su35-skin','su35-camo','su35-nose'].includes(mesh.name)),su35PanelPaths(),{step:.03,offset:.003}));
+  applyAirframeSurface(group.children.filter(mesh=>['su35-skin','su35-camo','su35-nose'].includes(mesh.name)),'su35');
   group.name='Su-35 inspired enemy';group.userData.parts=names;
   return group;
 }

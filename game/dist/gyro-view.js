@@ -154,6 +154,10 @@ export class GyroPoseView {
     this.disposed = true; this.stop(); this.visible = false; this.observer.disconnect(); document.removeEventListener('visibilitychange', this.onVisibility);
     const geometries = new Set(), materials = new Set();
     this.scene.traverse(object => { if (object.geometry) geometries.add(object.geometry); if (object.material) materials.add(object.material); });
-    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => { material.map?.dispose(); material.dispose(); }); this.environment?.dispose(); this.renderer.dispose();
+    const textures = new Set();
+    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => {
+      for (const key of ['map', 'bumpMap', 'roughnessMap']) if (material[key]) textures.add(material[key]);
+      material.dispose();
+    }); textures.forEach(texture => texture.dispose()); this.environment?.dispose(); this.renderer.dispose();
   }
 }
