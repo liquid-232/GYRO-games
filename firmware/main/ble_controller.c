@@ -13,7 +13,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
-#include "ble_controller.h"
+#include "gyro_packet.h"
 
 static const char *TAG="gyro_ble";
 // 7b6a0001-8e7f-4a23-a83b-e55a7634cc01; NimBLE UUID bytes are reversed.
@@ -21,12 +21,6 @@ static const ble_uuid128_t service_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5
 static const ble_uuid128_t motion_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5a,0xe5,0x3b,0xa8,0x23,0x4a,0x7f,0x8e,0x02,0x00,0x6a,0x7b);
 static const ble_uuid128_t command_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5a,0xe5,0x3b,0xa8,0x23,0x4a,0x7f,0x8e,0x03,0x00,0x6a,0x7b);
 
-// 20 bytes fit the default ATT MTU of 23 without fragmentation.
-typedef struct __attribute__((packed)) {
-    char magic[4]; uint32_t sequence, device_us;
-    int16_t roll_cdeg, pitch_cdeg;
-    uint8_t flags, motion_dps; int16_t yaw_cdeg;
-} motion_packet_t;
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id; } command_t;
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id, device_us; } reply_t;
 _Static_assert(sizeof(motion_packet_t)==20,"BLE motion must fit one notification");
@@ -39,13 +33,7 @@ static bool subscribed, notify_pending, notify_inflight, synced;
 static portMUX_TYPE ble_lock=portMUX_INITIALIZER_UNLOCKED;
 static struct ble_npl_event notify_event;
 
-static motion_packet_t make_packet(void) {
-    gyro_snapshot_t sample; gyro_get_snapshot(&sample);
-    motion_packet_t packet={.magic={'G','Y','B','2'},.sequence=sample.sequence,.device_us=sample.device_us,
-        .roll_cdeg=(int16_t)lroundf(sample.roll*100),.pitch_cdeg=(int16_t)lroundf(sample.pitch*100),
-        .flags=sample.flags,.motion_dps=(uint8_t)fminf(255,lroundf(sample.motion_dps)),.yaw_cdeg=(int16_t)lroundf(sample.yaw*100)};
-    return packet;
-}
+static motion_packet_t make_packet(void) { return gyro_make_motion(); }
 static int motion_access(uint16_t conn,uint16_t attr,struct ble_gatt_access_ctxt *ctxt,void *arg) {
     (void)conn; (void)attr; (void)arg;
     if(ctxt->op!=BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_READ_NOT_PERMITTED;

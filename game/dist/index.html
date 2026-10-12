@@ -4,9 +4,9 @@
 <header><a class="brand" href="./"><span class="brand-mark">↗</span><div>GYRO <small>FLIGHT SYSTEMS</small></div></a><div class="mission"><span class="live"></span> OPERATION / ARCHIPELAGO <b>苍穹突击 · 群岛战区</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">蓝牙体感</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
 <aside id="gyroPanel" class="gyro-panel hidden" aria-labelledby="gyroTitle">
   <div class="gyro-heading"><div><span class="eyebrow">MOTION FLIGHT</span><h2 id="gyroTitle">蓝牙体感飞行</h2></div><button id="gyroClose" aria-label="关闭体感设置">×</button></div>
-  <label class="gyro-field">操控方式<select id="controlMode"><option value="gyro" selected>MPU6050 蓝牙体感</option><option value="keyboard">键盘 / 触屏</option></select></label>
-  <p class="gyro-guide">① 开启电脑蓝牙，点击连接并选择开发板<br>② 保持控制器静止约 2–4 秒<br>③ 以舒适握姿设置中位后开始飞行</p>
-  <div class="gyro-connect"><div class="gyro-device">蓝牙控制器<b id="gyroDevice">GYRO-C3-BLE-xxxx</b></div><button id="gyroConnect">连接蓝牙</button><button id="gyroDisconnect" disabled>断开</button></div>
+  <label class="gyro-field">操控方式<select id="controlMode"><option value="gyro" selected>MPU6050 蓝牙体感</option><option value="usb">MPU6050 USB 有线体感</option><option value="keyboard">键盘 / 触屏</option></select></label>
+  <p id="gyroGuide" class="gyro-guide">① 开启电脑蓝牙，点击连接并选择开发板<br>② 保持控制器静止约 2–4 秒<br>③ 以舒适握姿设置中位后开始飞行</p>
+  <div class="gyro-connect"><div class="gyro-device"><span id="gyroDeviceLabel">蓝牙控制器</span><b id="gyroDevice">GYRO-C3-BLE-xxxx</b></div><button id="gyroConnect">连接蓝牙</button><button id="gyroDisconnect" disabled>断开</button></div>
   <div id="gyroStatus" class="gyro-status" role="status">尚未连接</div>
   <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
   <div class="gyro-pose">横滚 / 俯仰 <b id="gyroTilt">— / —</b></div>

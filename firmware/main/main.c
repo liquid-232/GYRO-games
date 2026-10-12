@@ -8,7 +8,7 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "attitude.h"
-#include "ble_controller.h"
+#include "gyro_packet.h"
 
 #define SDA_PIN 4
 #define SCL_PIN 5
@@ -118,6 +118,7 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs_flash_erase()); error=nvs_flash_init();
     }
     ESP_ERROR_CHECK(error);
+    usb_controller_start();
     ble_controller_start();
     configASSERT(xTaskCreate(sensor_task,"imu",4096,NULL,8,NULL)==pdPASS);
 }
