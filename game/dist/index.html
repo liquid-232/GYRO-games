@@ -11,12 +11,12 @@
   <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
   <div class="gyro-pose">横滚 / 俯仰 <b id="gyroTilt">— / —</b></div>
   <section class="gyro-model-card" aria-labelledby="gyroModelTitle">
-    <div class="gyro-model-heading"><span id="gyroModelTitle">MPU6050 · 实时姿态</span><div><button id="gyroViewIso" type="button" aria-pressed="true">立体</button><button id="gyroViewTop" type="button" aria-pressed="false">俯视</button></div></div>
-    <div class="gyro-model-switch" role="group" aria-label="姿态预览模型"><button id="gyroShowBoard" type="button" aria-pressed="true">陀螺仪</button><button id="gyroShowAircraft" type="button" aria-pressed="false">飞机</button><span id="gyroModelLoading" role="status"></span></div>
-    <div id="gyroModel" class="gyro-model"><canvas id="gyroModelCanvas" aria-label="MPU6050 三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴"></canvas><span id="gyroModelWatermark" class="gyro-model-watermark">GY-521 / BODY AXES</span></div>
+    <div class="gyro-model-heading"><span id="gyroModelTitle">F-22 · 实时姿态</span><div><button id="gyroViewIso" type="button" aria-pressed="true">立体</button><button id="gyroViewTop" type="button" aria-pressed="false">俯视</button></div></div>
+    <div class="gyro-model-switch" role="group" aria-label="姿态预览模型"><button id="gyroShowAircraft" type="button" aria-pressed="true">飞机</button><button id="gyroShowBoard" type="button" aria-pressed="false">陀螺仪</button><span id="gyroModelLoading" role="status"></span></div>
+    <div id="gyroModel" class="gyro-model"><canvas id="gyroModelCanvas" aria-label="F-22 飞机三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴"></canvas><span id="gyroModelWatermark" class="gyro-model-watermark">F-22 RAPTOR / BODY AXES</span></div>
     <p id="gyroModelState" class="gyro-model-state" role="status">未连接 · 显示水平参考模型</p>
     <div class="gyro-axis-values"><div class="axis-x">X · 横滚<b id="gyroRollValue">—</b></div><div class="axis-y">Y · 俯仰<b id="gyroPitchValue">—</b></div><div class="axis-z">Z · 相对偏航<b id="gyroYawValue">—</b></div></div>
-    <p id="gyroModelAxesHelp" class="gyro-model-help">三轴交于芯片中心，箭头指向正方向。X 指向安装孔一侧，Y 指向 VCC 一端，Z 垂直芯片面向上。浅色网格为水平参考。</p>
+    <p id="gyroModelAxesHelp" class="gyro-model-help">三轴交于机身中心，箭头指向正方向。X 指向机头，Y 指向左翼，Z 指向机背上方。浅色网格为水平参考。</p>
     <p class="gyro-model-help">显示传感器姿态，不受游戏中位、反向或交换轴设置影响。偏航以静止校准为参考，可能随时间漂移。</p>
   </section>
   <div class="gyro-buttons"><button id="gyroCenter" class="gyro-accent" disabled>以当前姿态为中位</button><button id="gyroCalibrate" disabled>重新校准</button></div>

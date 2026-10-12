@@ -30,7 +30,8 @@ export class GyroPoseView {
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
     this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftLoad = null;
-    this.requestedModel = 'board'; this.modelKind = 'board'; this.disposed = false;
+    this.requestedModel = 'aircraft'; this.modelKind = 'aircraft'; this.disposed = false;
+    this.board.visible = false;
     this.body = new T.Group(); this.body.add(this.board, createBodyAxes(axisLabel)); this.scene.add(this.body);
     this.$('gyroShowBoard').onclick = () => this.selectModel('board');
     this.$('gyroShowAircraft').onclick = () => this.selectModel('aircraft');
@@ -48,6 +49,7 @@ export class GyroPoseView {
     });
     this.$('gyroModelCanvas').addEventListener('webglcontextrestored', () => { this.contextLost = false; if (this.visible && !document.hidden) this.draw(); });
     window.addEventListener('pagehide', () => this.dispose(), { once: true });
+    void this.selectModel('aircraft');
   }
   async selectModel(kind) {
     this.requestedModel = kind;
