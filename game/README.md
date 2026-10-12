@@ -20,7 +20,7 @@ python server.py --open
 - P / Esc：暂停、继续；切换窗口或打开体感设置时暂停。
 - 金币 +25 分；击毁敌机 +200 分；飞行每秒 +8 分。
 - 5 格生命，受伤后短暂无敌；橙色岩石不可击毁。
-- 红色敌机需要多次命中，会向玩家射击，击毁后掉落金币。
+- Su-35 风格敌机采用蓝灰涂装和红色识别标记，需要多次命中，会向玩家射击，击毁后掉落金币。
 - 每 25 秒提升战区难度。最佳分数和灵敏度在浏览器本地保存。
 
 ## 蓝牙体感
@@ -61,3 +61,11 @@ python server.py --open
 测试可在仓库根目录运行 `node game/test-ble.mjs` 、`node game/test-game.mjs` 与 `node game/test-gyro-model.mjs`。软件测试不能替代真实传感器和蓝牙硬件联调。
 
 模型位于 `dist/assets/airplane-f22.glb`，原素材位于 `../assets/models/`。Three.js 许可证见 `dist/vendor/LICENSE.txt`。
+
+## Su-35 风格敌机
+
+敌方模型为原创程序化游戏美术，参考 [UAC Su-35 官方资料](https://uacrussia.ru/en/aircraft/lineup/military/su-35/) 的外形特征：长机鼻、单座座舱、翼根边条、后掠机翼、双垂尾、双发机身与圆形喷口。比例按游戏画面调整，不是工程模型；未复制第三方网格或纹理。
+
+源码 `dist/enemy-model.js`，约 5,388 个三角面，按 8 种材质合并绘制。同场敌机共享几何与材质、各自保留独立变换，击毁时只移除实例。新的简化命中范围覆盖较宽机翼和较长机身。
+
+运行游戏服务后打开 `/enemy-preview.html` 可查看前侧、俯视、后侧和自动旋转。预览与游戏使用相同模型。测试：`node game/test-enemy-model.mjs` 与 `node game/test-game.mjs`（含翼尖命中、上方射击未命中和机翼碰撞）。
