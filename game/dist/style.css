@@ -23,3 +23,12 @@ header{z-index:10}.gyro-panel select,.gyro-panel input{font-family:inherit}
 .gyro-model-switch button{font-size:11px;padding:6px 14px;border:1px solid #56788d55;border-radius:5px;background:transparent;color:#8ca6b7}
 .gyro-model-switch button[aria-pressed=true]{background:#86f8df18;color:#86f8df;border-color:#86f8df70}
 #gyroModelLoading{font-size:10px;color:#dfbf84;line-height:1.5;flex:1}
+
+/* Coastal daylight: retain readable instruments over the brighter sea. */
+header,footer{background:linear-gradient(90deg,#06121ec9,#06121e8c);backdrop-filter:blur(5px)}
+#hud{filter:drop-shadow(0 2px 4px #03131b)}
+.stat label,.side-readout,.right-readout{color:#b1c5cc;text-shadow:0 2px 5px #06151e}
+.side-readout b,.right-readout b{color:#dfebed}.ticks{color:#9eb8c2}
+.intro{text-shadow:0 2px 18px #03151d}.intro:before{content:"";position:absolute;inset:-30px -55px;z-index:-1;background:radial-gradient(ellipse,#071722c9,transparent 72%);pointer-events:none}
+.intro p{color:#c0d2d9}.aircraft-label{text-shadow:0 2px 8px #041621}
+body.playing .grain{background:linear-gradient(180deg,#03101b75,transparent 27%,transparent 76%,#030c1640)}
