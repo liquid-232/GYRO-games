@@ -8,11 +8,13 @@ const signedDelta = (value, anchor) => ((value - anchor + 0x80000000) >>> 0) - 0
 
 export function decodeMotion(value) {
   const view = value instanceof DataView ? value : new DataView(value);
-  if (view.byteLength !== 20 || view.getUint32(0, true) !== 0x31425947) throw Error('蓝牙数据格式不匹配，请烧录最新固件');
-  const packet = { sequence: view.getUint32(4, true), device_us: view.getUint32(8, true),
+  if (view.byteLength !== 20 || ![0x31425947, 0x32425947].includes(view.getUint32(0, true))) throw Error('蓝牙数据格式不匹配，请烧录最新固件');
+  const version = view.getUint8(3) - 48;
+  const packet = { version, sequence: view.getUint32(4, true), device_us: view.getUint32(8, true),
     roll: view.getInt16(12, true) / 100, pitch: view.getInt16(14, true) / 100,
-    flags: view.getUint8(16), motion_dps: view.getUint8(17), period_us: view.getUint16(18, true) };
-  if (Math.abs(packet.roll) > 180 || Math.abs(packet.pitch) > 90 || packet.flags & ~7
+    flags: view.getUint8(16), motion_dps: view.getUint8(17), period_us: version === 1 ? view.getUint16(18, true) : null,
+    yaw: version === 2 ? view.getInt16(18, true) / 100 : null };
+  if (Math.abs(packet.roll) > 180 || Math.abs(packet.pitch) > 90 || (packet.yaw != null && Math.abs(packet.yaw) > 180) || packet.flags & ~7
       || (packet.flags & 6) === 6 || (packet.flags & 6 && !(packet.flags & SENSOR_OK))) throw Error('无效的蓝牙姿态数据');
   return packet;
 }

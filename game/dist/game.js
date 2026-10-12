@@ -11,7 +11,15 @@ const envScene=new T.Scene();envScene.background=new T.Color(0x344a5d);for(const
 const world=new T.Group();scene.add(world);const objects=[],shots=[],hostile=[],effects=[];let aircraft,mode='loading',autoFire=true,muted=true,keys=new Set(),touch={x:0,y:0,fire:false};
 let hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=0,shotTimer=0,noticeTimer=0,shake=0,best=0;
 try{best=Number(localStorage.getItem('gyro-skystrike-best'))||0;}catch{}$('best').textContent=String(best).padStart(6,'0');
-const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause();$('pauseReason').textContent=message;}},onNotice:notice});
+let poseView, poseLoad;
+const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause();$('pauseReason').textContent=message;}},onNotice:notice,onPanelVisibility:visible=>{
+ if(poseView){poseView.setVisible(visible);return;}
+ if(!visible||poseLoad)return;
+ poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{
+   poseView=new GyroPoseView($('gyroModel'),gyro);
+   poseView.setVisible(!$('gyroPanel').classList.contains('hidden'));
+ }).catch(()=>{$('gyroModelState').textContent='3D 预览暂不可用，角度读数和操控仍可使用';poseLoad=null;});
+}});
 function permitFlight(){if(gyro.canFly)return true;notice(gyro.pauseMessage);return false;}
 const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};
 const materials={rock:new T.MeshStandardMaterial({color:0x2a3d50,metalness:.45,roughness:.65,flatShading:true}),edge:new T.MeshBasicMaterial({color:0xffaf61}),coin:new T.MeshStandardMaterial({color:0xffd16b,metalness:.85,roughness:.2,emissive:0x805015,emissiveIntensity:.5}),laser:new T.MeshBasicMaterial({color:0xaaffdf}),red:new T.MeshBasicMaterial({color:0xff5b69}),enemy:new T.MeshStandardMaterial({color:0x5d2431,metalness:.75,roughness:.3,emissive:0x3d0710,emissiveIntensity:.5})};

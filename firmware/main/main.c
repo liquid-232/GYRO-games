@@ -83,7 +83,7 @@ static void sensor_task(void *arg) {
                 .period_us=(uint16_t)fminf(now-last_sample,65535)};
             float roll, pitch;
             attitude_step(&filter,a,g,(now-last_sample)/1000000.f,&roll,&pitch);
-            packet.roll=roll; packet.pitch=pitch;
+            packet.roll=roll; packet.pitch=pitch; packet.yaw=attitude_yaw(&filter);
             if(filter.ready) {
                 float x=g[0]-filter.bias[0],y=g[1]-filter.bias[1],z=g[2]-filter.bias[2];
                 packet.motion_dps=sqrtf(x*x+y*y+z*z);

@@ -9,7 +9,7 @@ const deadline = async (operation, ms = 5000) => {
 };
 
 export class GyroController {
-  constructor({ onInterrupt }) {
+  constructor({ onInterrupt, onPanelVisibility = () => {} }) {
     this.onInterrupt = onInterrupt;
     this.selected = false; this.neutral = null; this.feed = new MotionFeed();
     this.output = { x: 0, y: 0 }; this.device = null; this.motion = null; this.control = null;
@@ -23,7 +23,7 @@ export class GyroController {
         deadzone: clamp(Number.isFinite(saved.deadzone) ? saved.deadzone : 1.5, 0, 5),
         invertX: saved.invertX === true, invertY: saved.invertY === true, swap: saved.swap === true };
     } catch {}
-    this.bindUI();
+    this.bindUI(onPanelVisibility);
     this.uiTimer = setInterval(() => this.renderStatus(), 100);
     window.addEventListener('pagehide', () => this.disconnect());
     document.addEventListener('visibilitychange', () => { if (document.hidden) { this.output = { x: 0, y: 0 }; this.feed.history = []; } });
@@ -162,10 +162,10 @@ export class GyroController {
     return operation.finally(() => { this.pendingCommands--; });
   }
 
-  bindUI() {
+  bindUI(onPanelVisibility) {
     const $ = id => document.getElementById(id);
-    const open = () => { $('gyroPanel').classList.remove('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'true'); this.onInterrupt('调整体感设置后，可继续飞行。'); $('gyroClose').focus(); };
-    const close = () => { $('gyroPanel').classList.add('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'false'); $('gyroToggle').focus(); };
+    const open = () => { $('gyroPanel').classList.remove('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'true'); this.onInterrupt('调整体感设置后，可继续飞行。'); $('gyroClose').focus(); onPanelVisibility(true); };
+    const close = () => { $('gyroPanel').classList.add('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'false'); $('gyroToggle').focus(); onPanelVisibility(false); };
     $('gyroToggle').onclick = () => $('gyroPanel').classList.contains('hidden') ? open() : close();
     $('gyroClose').onclick = close;
     $('gyroPanel').addEventListener('keydown', event => { if (event.key === 'Escape') { close(); event.stopPropagation(); } });

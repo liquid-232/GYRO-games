@@ -3,7 +3,7 @@
 
 typedef struct {
     uint32_t sequence, device_us;
-    float roll, pitch, motion_dps;
+    float roll, pitch, yaw, motion_dps;
     uint16_t period_us;
     uint8_t flags;
 } gyro_snapshot_t;

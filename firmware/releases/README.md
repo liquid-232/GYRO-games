@@ -5,7 +5,7 @@
 SHA-256：
 
 ```text
-d612ecdcb7504bea19c99fc717d9ff9406b130d6936602da556b2d04cb6c98d9
+1e8d1717c010233c7c38b8d097f92de4f0a9c69e2c5de56ef853dd8d002022f5
 ```
 
 仓库根目录运行（esptool 5.x，替换实际串口）：
@@ -16,7 +16,7 @@ python -m esptool --chip esp32c3 --port COM29 --baud 460800 write-flash 0x0 firm
 
 烧录后开启电脑蓝牙，用 Chrome / Edge 打开游戏，在「蓝牙体感」里选择 `GYRO-C3-BLE-xxxx`。保持传感器静止，姿态就绪后设置中位。
 
-2026-10-12：蓝牙版已在 COM29 编译并烧录，写入哈希校验通过。真实体感精度仍需硬件联调。
+2026-10-12：GYB2 三轴姿态版已在 COM29 编译并烧录，写入哈希校验通过，真实 BLE 收到约 100 Hz 三轴角度。烧录后刷新游戏页面以加载兼容的协议解析器。偏航为校准后的相对角度，可能漂移。
 
 重新构建后，在 `firmware/build` 中生成合并镜像：
 

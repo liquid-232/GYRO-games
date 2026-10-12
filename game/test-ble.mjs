@@ -12,6 +12,17 @@ function frame(sequence, deviceUs, roll = 0, pitch = 0, flags = 5, motion = 0) {
 
 const decoded = decodeMotion(frame(10, 1000, -32.17, 14.29));
 assert.equal(decoded.roll, -32.17); assert.equal(decoded.pitch, 14.29);
+assert.equal(decoded.yaw, null, 'legacy firmware must not invent heading');
+assert.equal(decoded.period_us, 5000);
+const v2 = frame(11, 2000, -32.17, 14.29);
+v2.setUint32(0, 0x32425947, true); v2.setInt16(18, -12345, true);
+const fullPose = decodeMotion(v2);
+assert.equal(fullPose.yaw, -123.45); assert.equal(fullPose.roll, -32.17); assert.equal(fullPose.period_us, null);
+assert.equal(fullPose.version, 2);
+v2.setInt16(18, 18001, true); assert.throws(() => decodeMotion(v2), /无效/);
+v2.setInt16(18, 18000, true); assert.equal(decodeMotion(v2).yaw, 180);
+v2.setInt16(18, -18000, true); assert.equal(decodeMotion(v2).yaw, -180);
+v2.setUint8(3, 51); assert.throws(() => decodeMotion(v2), /格式/);
 const shifted = new Uint8Array(27); shifted.set(new Uint8Array(frame(10, 1000).buffer), 3);
 assert.equal(decodeMotion(new DataView(shifted.buffer, 3, 20)).sequence, 10, 'DataView byte offset is respected');
 assert.throws(() => decodeMotion(new ArrayBuffer(19)));

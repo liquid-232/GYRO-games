@@ -76,3 +76,10 @@ static inline void attitude_step(attitude_t *f, const float a[3], const float g[
     *roll=atan2f(2*(q[0]*q[1]+q[2]*q[3]),1-2*(q[1]*q[1]+q[2]*q[2]))/radians;
     *pitch=asinf(fmaxf(-1,fminf(1,2*(q[0]*q[2]-q[3]*q[1]))))/radians;
 }
+
+// Relative heading from the same body-to-world quaternion as roll/pitch.
+// No magnetometer: calibration sets the reference, and heading can drift.
+static inline float attitude_yaw(const attitude_t *f) {
+    const float *q=f->q;
+    return atan2f(2*(q[0]*q[3]+q[1]*q[2]),1-2*(q[2]*q[2]+q[3]*q[3])) / .01745329252f;
+}

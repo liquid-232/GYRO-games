@@ -23,6 +23,16 @@ int main(void) {
     attitude_reset(&f); a[0]=0;
     for(int i=0;i<1000;i++) { g[0]=-5.3f+(i%2?1:-1); attitude_step(&f,a,g,.005f,&roll,&pitch); }
     assert(!f.ready);
-    puts("PASS: stationary hardware bias calibration, 60s drift, tilt tracking and moving-sensor rejection.");
+    // Z rotation must be observable without changing roll/pitch controls.
+    attitude_reset(&f); a[0]=a[1]=0; a[2]=1; g[0]=g[1]=g[2]=0;
+    for(int i=0;i<400;i++) attitude_step(&f,a,g,.005f,&roll,&pitch);
+    g[2]=90;
+    for(int i=0;i<200;i++) attitude_step(&f,a,g,.005f,&roll,&pitch);
+    assert(fabsf(attitude_yaw(&f)-90)<.05f);
+    assert(fabsf(roll)<.05f && fabsf(pitch)<.05f);
+    for(int i=0;i<400;i++) attitude_step(&f,a,g,.005f,&roll,&pitch);
+    assert(fabsf(attitude_yaw(&f)+90)<.05f);
+    attitude_reset(&f); assert(fabsf(attitude_yaw(&f))<.001f);
+    puts("PASS: stationary hardware bias calibration, 60s drift, tilt tracking, moving-sensor rejection, relative yaw and heading wrap.");
     return 0;
 }

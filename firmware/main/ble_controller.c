@@ -25,7 +25,7 @@ static const ble_uuid128_t command_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5
 typedef struct __attribute__((packed)) {
     char magic[4]; uint32_t sequence, device_us;
     int16_t roll_cdeg, pitch_cdeg;
-    uint8_t flags, motion_dps; uint16_t period_us;
+    uint8_t flags, motion_dps; int16_t yaw_cdeg;
 } motion_packet_t;
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id; } command_t;
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id, device_us; } reply_t;
@@ -41,9 +41,9 @@ static struct ble_npl_event notify_event;
 
 static motion_packet_t make_packet(void) {
     gyro_snapshot_t sample; gyro_get_snapshot(&sample);
-    motion_packet_t packet={.magic={'G','Y','B','1'},.sequence=sample.sequence,.device_us=sample.device_us,
+    motion_packet_t packet={.magic={'G','Y','B','2'},.sequence=sample.sequence,.device_us=sample.device_us,
         .roll_cdeg=(int16_t)lroundf(sample.roll*100),.pitch_cdeg=(int16_t)lroundf(sample.pitch*100),
-        .flags=sample.flags,.motion_dps=(uint8_t)fminf(255,lroundf(sample.motion_dps)),.period_us=sample.period_us};
+        .flags=sample.flags,.motion_dps=(uint8_t)fminf(255,lroundf(sample.motion_dps)),.yaw_cdeg=(int16_t)lroundf(sample.yaw*100)};
     return packet;
 }
 static int motion_access(uint16_t conn,uint16_t attr,struct ble_gatt_access_ctxt *ctxt,void *arg) {
