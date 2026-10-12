@@ -1,4 +1,4 @@
-import { BLE_SERVICE, BLE_MOTION, BLE_COMMAND, MotionFeed, SENSOR_OK, CALIBRATING, READY, STALE_MS } from './ble-protocol.js';
+import { BLE_SERVICE, BLE_MOTION, BLE_COMMAND, MotionFeed, SENSOR_OK, CALIBRATING, READY, STALE_MS, PAUSE_AFTER_MS } from './ble-protocol.js';
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const angleDelta = (value, center) => ((value - center + 540) % 360) - 180;
 const axisValue = (angle, fullScale, deadzone) => Math.sign(angle) * clamp((Math.abs(angle) - deadzone) / (fullScale - deadzone), 0, 1);
@@ -26,7 +26,7 @@ export class GyroController {
     this.bindUI();
     this.uiTimer = setInterval(() => this.renderStatus(), 100);
     window.addEventListener('pagehide', () => this.disconnect());
-    document.addEventListener('visibilitychange', () => { if (document.hidden) this.invalidate(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { this.output = { x: 0, y: 0 }; this.feed.history = []; } });
     if (!this.supported) this.message('体感模式需要 Chrome 或 Edge，并从桌面快捷方式打开本地游戏。请检查电脑蓝牙已开启。');
     this.renderStatus();
   }
@@ -36,11 +36,29 @@ export class GyroController {
   get fresh() { return this.connected && !this.calibrationPending && this.feed.isFresh(performance.now()); }
   get canFly() { return !this.selected || !!(this.fresh && this.neutral); }
 
+  get mustPause() {
+    const flags = this.feed.packet?.flags || 0;
+    if (!this.connected || !this.neutral || this.calibrationPending || !(flags & SENSOR_OK) || !(flags & READY)) return true;
+    const age = this.feed.age(performance.now());
+    return age == null || age >= PAUSE_AFTER_MS;
+  }
+  get pauseMessage() {
+    if (!this.connected) return '蓝牙已断开，请重新连接并设置中位。';
+    const flags = this.feed.packet?.flags || 0;
+    if (this.feed.packet && !(flags & SENSOR_OK)) return '蓝牙仍连接，但 MPU6050 采样异常，请检查接线，恢复后设置中位。';
+    if (this.calibrationPending || flags & CALIBRATING) return '传感器正在校准，请保持静止，完成后重新设置中位。';
+    if (this.neutral && flags & READY) {
+      return this.mustPause ? '蓝牙仍连接，但姿态数据持续中断。数据恢复后点击继续，无需重设中位。'
+        : '姿态数据短暂停顿，请等待新数据后继续。';
+    }
+    return '请等待姿态就绪，再以舒适握姿设置中位。';
+  }
+
   sample(dt) {
     if (!this.selected) return null;
     if (!this.canFly) {
       this.output = { x: 0, y: 0 };
-      this.onInterrupt('蓝牙体感未就绪：请连接、保持静止，再设置中位。');
+      if (this.mustPause) this.onInterrupt(this.pauseMessage);
       return this.output;
     }
     const { roll, pitch } = this.feed.packet, s = this.settings;
@@ -171,20 +189,21 @@ export class GyroController {
 
   renderStatus() {
     const $ = id => document.getElementById(id), now = performance.now(), packet = this.feed.packet;
-    if (this.neutral && !this.fresh) this.invalidate();
+    if (!this.fresh) this.feed.history = [];
     this.feed.prune(now);
     const linked = this.connected, alive = linked && this.feed.lastPacketAt != null && now - this.feed.lastPacketAt < STALE_MS;
     let status = '蓝牙尚未连接';
     if (!this.supported) status = '请使用支持蓝牙的 Chrome / Edge';
     else if (this.connecting) status = '正在选择 / 连接蓝牙控制器';
-    else if (linked && !alive) status = '蓝牙已连接 · 等待姿态数据';
+    else if (linked && !alive) status = !packet ? '蓝牙已连接 · 等待姿态数据' : this.mustPause ? '蓝牙已连接 · 数据持续中断' : '蓝牙已连接 · 数据短暂停顿';
     else if (alive && !(packet?.flags & SENSOR_OK)) status = '蓝牙已连接 · 请检查 MPU6050 接线';
     else if (alive && (packet?.flags & CALIBRATING || this.calibrationPending)) status = '静置校准中';
     else if (this.fresh) status = this.neutral ? '蓝牙体感已就绪' : '姿态就绪 · 请设置中位';
     else if (alive) status = '采样中断 · 请检查传感器';
     $('gyroStatus').textContent = status; $('gyroStatus').dataset.ready = String(!!(this.fresh && this.neutral));
     $('gyroDevice').textContent = this.device?.name || 'GYRO-C3-BLE-xxxx';
-    $('gyroToggle').textContent = this.selected ? `蓝牙体感 · ${this.canFly ? '已就绪' : '待连接'}` : '蓝牙体感';
+    const controlStatus = !linked ? '待连接' : this.calibrationPending || packet?.flags & CALIBRATING ? '校准中' : !this.neutral ? '待设中位' : this.fresh ? '已就绪' : '等待数据';
+    $('gyroToggle').textContent = this.selected ? `蓝牙体感 · ${controlStatus}` : '蓝牙体感';
     $('gyroConnect').disabled = !this.supported || this.connecting;
     $('gyroDisconnect').disabled = !this.device;
     $('gyroRtt').textContent = alive && this.rtt != null ? `${this.rtt.toFixed(1)} ms` : '—';
@@ -195,6 +214,6 @@ export class GyroController {
     $('gyroSensitivityValue').textContent = `${this.settings.fullScale}°`; $('gyroDeadzoneValue').textContent = `${this.settings.deadzone.toFixed(1)}°`;
     $('gyroCenter').disabled = !this.fresh; $('gyroCalibrate').disabled = !alive || !(packet?.flags & SENSOR_OK) || this.pendingCommands > 0;
     $('controlHint').textContent = this.selected ? '蓝牙倾斜移动 · 空格开火 · P 暂停' : 'WASD / 方向键移动 · 空格开火';
-    if (this.selected && !this.canFly) this.onInterrupt('蓝牙体感未就绪，请检查连接并设置中位。');
+    if (this.selected && this.mustPause) this.onInterrupt(this.pauseMessage);
   }
 }

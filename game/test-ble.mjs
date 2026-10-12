@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { decodeMotion, MotionFeed } from './dist/ble-protocol.js';
+import { decodeMotion, MotionFeed, PAUSE_AFTER_MS } from './dist/ble-protocol.js';
 
 function frame(sequence, deviceUs, roll = 0, pitch = 0, flags = 5, motion = 0) {
   const v = new DataView(new ArrayBuffer(20));
@@ -48,7 +48,8 @@ const element = id => {
     classList: { add() {}, remove() {}, contains() { return true; } }, setAttribute() {}, addEventListener() {}, focus() {} });
   return elements.get(id);
 };
-globalThis.document = { getElementById: element, addEventListener() {}, hidden: false };
+const documentHandlers = new Map();
+globalThis.document = { getElementById: element, addEventListener(name, handler) { documentHandlers.set(name, handler); }, hidden: false };
 globalThis.window = { isSecureContext: true, addEventListener() {} };
 globalThis.localStorage = { getItem() { return null; }, setItem() {} };
 const originalInterval = globalThis.setInterval;
@@ -90,12 +91,34 @@ controller.center(); assert.equal(controller.canFly, true);
 assert.deepEqual(controller.sample(.02), { x: 0, y: 0 });
 clock += 10; motion.emit(frame(21, clock * 1000, 25, -25));
 assert.ok(controller.sample(.1).x > .99); assert.ok(controller.output.y > .99, 'tilt moves both game axes');
-clock += 151; controller.renderStatus();
-assert.equal(controller.canFly, false); assert.equal(controller.neutral, null); assert.ok(interruptions.length);
-clock += 10; motion.emit(frame(22, clock * 1000)); assert.equal(controller.canFly, false, 'recovery cannot silently resume without centering');
+const centered = controller.neutral;
+clock += 200; controller.renderStatus();
+assert.equal(controller.connected, true); assert.equal(controller.canFly, false);
+assert.equal(controller.neutral, centered, '200ms packet gap must preserve center');
+assert.deepEqual(controller.sample(.02), { x: 0, y: 0 }, 'stale input is never applied');
+assert.equal(interruptions.length, 0, 'short gap must not request a modal pause');
+clock += 10; motion.emit(frame(22, clock * 1000));
+assert.equal(controller.canFly, true, 'short gap resumes with the existing center');
+clock += PAUSE_AFTER_MS; controller.renderStatus();
+assert.equal(controller.mustPause, true); assert.ok(interruptions.length);
+assert.equal(controller.neutral, centered, 'sustained data loss also preserves center while GATT remains connected');
+clock += 10; motion.emit(frame(23, clock * 1000)); assert.equal(controller.canFly, true, 'long-gap recovery permits manual resume without centering');
+document.hidden = true; documentHandlers.get('visibilitychange')();
+assert.equal(controller.neutral, centered, 'backgrounding the tab cannot erase the center');
+document.hidden = false; documentHandlers.get('visibilitychange')();
+clock += 10; motion.emit(frame(24, clock * 1000, 0, 0, 3));
+assert.equal(controller.neutral, null, 'sensor recalibration still invalidates center');
+assert.equal(controller.mustPause, true);
+for (let seq = 25; seq <= 44; seq++) { clock += 10; motion.emit(frame(seq, clock * 1000)); }
+controller.center(); assert.equal(controller.canFly, true);
+clock += 10; motion.emit(frame(45, clock * 1000, 0, 0, 0));
+assert.equal(controller.neutral, null, 'a sensor fault must still invalidate center immediately');
+for (let seq = 46; seq <= 65; seq++) { clock += 10; motion.emit(frame(seq, clock * 1000)); }
+controller.center(); assert.equal(controller.canFly, true);
 wrongReply = true; await assert.rejects(controller.command(2), /应答不匹配/); wrongReply = false;
-controller.disconnect();
-assert.equal(controller.connected, false); assert.equal(motion.listeners.size, 0);
-motion.emit(frame(23, clock * 1000)); assert.equal(controller.feed.packet, null, 'old connection notifications are detached');
+device.gatt.disconnect();
+assert.equal(controller.connected, false); assert.equal(controller.neutral, null, 'actual BLE disconnect invalidates center');
+assert.equal(motion.listeners.size, 0);
+motion.emit(frame(66, clock * 1000)); assert.equal(controller.feed.packet, null, 'old connection notifications are detached');
 globalThis.setInterval = originalInterval;
-console.log('PASS: BLE format/range, duplicates, order/clock rollover, stale watchdog, calibration, mocked connect/tilt/center/disconnect and command acknowledgment.');
+console.log('PASS: BLE format/range, duplicates, order/clock rollover, stale watchdog, transient/sustained gaps, backgrounding, calibration/faults, mocked connect/tilt/center/disconnect and command acknowledgment.');

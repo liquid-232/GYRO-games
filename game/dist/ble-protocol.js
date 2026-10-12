@@ -2,6 +2,7 @@ export const BLE_SERVICE = '7b6a0001-8e7f-4a23-a83b-e55a7634cc01';
 export const BLE_MOTION = '7b6a0002-8e7f-4a23-a83b-e55a7634cc01';
 export const BLE_COMMAND = '7b6a0003-8e7f-4a23-a83b-e55a7634cc01';
 export const STALE_MS = 150;
+export const PAUSE_AFTER_MS = 750;
 export const SENSOR_OK = 1, CALIBRATING = 2, READY = 4;
 const signedDelta = (value, anchor) => ((value - anchor + 0x80000000) >>> 0) - 0x80000000;
 

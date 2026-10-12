@@ -10,6 +10,10 @@ vm.runInContext(`const clamp=T.MathUtils.clamp;const world=new T.Group(),camera=
 vm.runInContext(source.slice(source.indexOf('function notice('),source.indexOf('async function boot(')),ctx);
 vm.runInContext(`
 reset();assert.equal(mode,'playing');assert.equal(hp,5);assert.equal(objects.filter(o=>o.type==='coin').length,7);
+const beforeGap=elapsed;gyro.selected=true;gyro.fresh=false;tick(.03);
+assert.equal(elapsed,beforeGap,'world freezes during a temporary gyro packet gap');assert.equal(mode,'playing');
+gyro.fresh=true;tick(.03);assert.ok(elapsed>beforeGap,'world resumes when fresh samples return');gyro.selected=false;
+
 clearList(objects);autoFire=false;spawnTimer=99;invuln=0;score=0;
 addCoin(0,5,7);tick(.01);assert.equal(coins,1);assert.ok(score>=25);assert.equal(objects.length,0);
 addRock(0,5,7,1.8);tick(.01);assert.equal(hp,4);tick(.01);assert.equal(hp,4,'invulnerability prevents stacked damage');clearList(objects);

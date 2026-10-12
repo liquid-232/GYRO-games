@@ -14,7 +14,7 @@
   <label class="gyro-slider" for="gyroSensitivity">满速倾角 <output id="gyroSensitivityValue">25°</output><input id="gyroSensitivity" type="range" min="12" max="45" step="1" value="25"><small>角度越小，操控越灵敏</small></label>
   <label class="gyro-slider" for="gyroDeadzone">中心死区 <output id="gyroDeadzoneValue">1.5°</output><input id="gyroDeadzone" type="range" min="0" max="5" step="0.5" value="1.5"></label>
   <div class="gyro-checks"><label><input id="gyroInvertX" type="checkbox">左右反向</label><label><input id="gyroInvertY" type="checkbox">上下反向</label><label><input id="gyroSwap" type="checkbox">交换轴向</label></div>
-  <p id="gyroMessage" class="gyro-message" aria-live="polite">断线或数据超过 150ms 未更新会暂停飞行；重新连接后请设置中位。</p>
+  <p id="gyroMessage" class="gyro-message" aria-live="polite">短暂数据停顿会等待恢复并保留中位；持续中断超过 0.75 秒会暂停。真正断开或重新校准后再设置中位。</p>
   <p class="gyro-footnote">使用 Chrome 或 Edge。命令往返时间不等于动作到画面的总延迟。设置完成后关闭面板，点击开始或继续飞行。</p>
 </aside>
 <section id="hud" aria-label="飞行仪表"><div class="stat"><label>MISSION SCORE / 得分</label><strong id="score">000000</strong></div><div class="stat coin-stat"><label>CREDITS / 金币</label><strong><i>◈</i> <span id="coins">0</span></strong></div><div class="stat"><label>HULL / 机体</label><div id="health"><i></i><i></i><i></i><i></i><i></i></div></div></section>
