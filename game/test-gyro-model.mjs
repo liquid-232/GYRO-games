@@ -58,3 +58,21 @@ await view.selectModel('board'); await view.selectModel('aircraft');
 assert.equal(view.board.visible,true); assert.equal(view.$('gyroShowAircraft').disabled,false);
 assert.match(view.$('gyroModelLoading').textContent,/重试/);
 console.log('PASS: actual F-22 asset, sensor alignment, fit, switching, late load, caching, retained pose and failure recovery.');
+
+const { setAircraftNoseDirection, NOSE_DIRECTIONS } = await import('./dist/aircraft-model.js');
+for (const direction of NOSE_DIRECTIONS) {
+  setAircraftNoseDirection(plane, direction);
+  const forward = new T.Vector3(0,0,-1).applyQuaternion(plane.quaternion);
+  const left = new T.Vector3(-1,0,0).applyQuaternion(plane.quaternion);
+  const up = new T.Vector3(0,1,0).applyQuaternion(plane.quaternion);
+  const expected = new T.Vector3().setComponent('XYZ'.indexOf(direction[1]),direction[0]==='+'?1:-1);
+  near(forward.distanceTo(expected),0);near(left.dot(forward),0);near(up.dot(forward),0);
+  near(new T.Vector3().crossVectors(forward,left).distanceTo(up),0);
+}
+setAircraftNoseDirection(plane,'invalid');near(new T.Vector3(0,0,-1).applyQuaternion(plane.quaternion).x,1);
+view.controller={selected:false};view.stop=()=>{};view.resize=()=>{};
+let draws=0;view.draw=()=>draws++;globalThis.document={hidden:false};
+view.setVisible(true);assert.equal(view.visible,false);assert.equal(draws,0);
+view.controller.selected=true;view.setVisible(true);assert.equal(draws,1);
+view.setVisible(false);assert.equal(view.visible,false);
+console.log('PASS: six nose directions, handedness, invalid preference and keyboard rendering gate.');

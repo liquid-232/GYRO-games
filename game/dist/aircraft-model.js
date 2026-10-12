@@ -17,3 +17,16 @@ export function createAircraftPoseModel(buffer) {
   model.scale.setScalar(2.6 / Math.max(size.x, size.y, size.z));
   return model;
 }
+
+export const NOSE_DIRECTIONS = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
+export function setAircraftNoseDirection(model, direction = '+X') {
+  if (!NOSE_DIRECTIONS.includes(direction)) direction = '+X';
+  const forward = new T.Vector3(); forward.setComponent('XYZ'.indexOf(direction[1]), direction[0] === '+' ? 1 : -1);
+  const up = new T.Vector3(...(direction[1] === 'Z' ? [1,0,0] : [0,0,1]));
+  const left = new T.Vector3().crossVectors(up, forward);
+  const mounting = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(forward, left, up));
+  const sourceToSensor = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().set(
+    0, 0, -1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1));
+  model.quaternion.copy(mounting).multiply(sourceToSensor);
+  return direction;
+}

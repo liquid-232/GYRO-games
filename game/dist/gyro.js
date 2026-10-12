@@ -11,7 +11,7 @@ const deadline = async (operation, ms = 5000) => {
 export class GyroController {
   constructor({ onInterrupt, onPanelVisibility = () => {} }) {
     this.onInterrupt = onInterrupt;
-    this.selected = false; this.neutral = null; this.feed = new MotionFeed();
+    this.selected = true; this.neutral = null; this.feed = new MotionFeed();
     this.output = { x: 0, y: 0 }; this.device = null; this.motion = null; this.control = null;
     this.generation = 0; this.connecting = false; this.calibrationPending = false;
     this.commandTail = Promise.resolve(); this.pendingCommands = 0; this.rtt = null;
@@ -164,12 +164,14 @@ export class GyroController {
 
   bindUI(onPanelVisibility) {
     const $ = id => document.getElementById(id);
-    const open = () => { $('gyroPanel').classList.remove('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'true'); this.onInterrupt('调整体感设置后，可继续飞行。'); $('gyroClose').focus(); onPanelVisibility(true); };
+    $('controlMode').value = this.selected ? 'gyro' : 'keyboard';
+    $('gyroModelCard').classList.toggle('hidden', !this.selected);
+    const open = () => { $('gyroPanel').classList.remove('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'true'); this.onInterrupt('调整体感设置后，可继续飞行。'); $('gyroClose').focus(); onPanelVisibility(this.selected); };
     const close = () => { $('gyroPanel').classList.add('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'false'); $('gyroToggle').focus(); onPanelVisibility(false); };
     $('gyroToggle').onclick = () => $('gyroPanel').classList.contains('hidden') ? open() : close();
     $('gyroClose').onclick = close;
     $('gyroPanel').addEventListener('keydown', event => { if (event.key === 'Escape') { close(); event.stopPropagation(); } });
-    $('controlMode').onchange = () => { this.selected = $('controlMode').value === 'gyro'; this.output = { x: 0, y: 0 }; this.onInterrupt('操控方式已切换，请确认后继续。'); this.renderStatus(); };
+    $('controlMode').onchange = () => { this.selected = $('controlMode').value === 'gyro'; this.output = { x: 0, y: 0 }; $('gyroModelCard').classList.toggle('hidden', !this.selected); onPanelVisibility(this.selected && !$('gyroPanel').classList.contains('hidden')); this.onInterrupt('操控方式已切换，请确认后继续。'); this.renderStatus(); };
     $('gyroConnect').onclick = () => this.connect().catch(error => this.message(error.message));
     $('gyroDisconnect').onclick = () => { this.disconnect('控制器已断开。'); this.renderStatus(); };
     $('gyroCenter').onclick = () => this.center();

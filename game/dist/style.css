@@ -23,3 +23,7 @@ header{z-index:10}.gyro-panel select,.gyro-panel input{font-family:inherit}
 .gyro-model-switch button{font-size:11px;padding:6px 14px;border:1px solid #56788d55;border-radius:5px;background:transparent;color:#8ca6b7}
 .gyro-model-switch button[aria-pressed=true]{background:#86f8df18;color:#86f8df;border-color:#86f8df70}
 #gyroModelLoading{font-size:10px;color:#dfbf84;line-height:1.5;flex:1}
+
+.gyro-nose-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 12px 0}
+.gyro-nose-field select{min-width:110px;font-size:11px;padding:7px}
+.lobby-button{display:block;width:100%;margin-top:12px;padding:12px;border-color:#86f8df40;color:#aec6d4}
