@@ -15,7 +15,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 class PageLifecycle:
     """Keep serving while any game document is alive, with a reload grace period."""
-    def __init__(self, enabled, close_delay=4, lease=180, startup=120, clock=time.monotonic):
+    def __init__(self, enabled, close_delay=2, lease=180, startup=120, clock=time.monotonic):
         self.enabled = enabled
         self.token = secrets.token_urlsafe(32)
         self.close_delay, self.lease, self.clock = close_delay, lease, clock
