@@ -1,3 +1,10 @@
+/*
+ * NimBLE 蓝牙外设：提供姿态 READ/NOTIFY 和命令 READ/WRITE 服务。
+ * 设备名为 GYRO-C3-BLE-xxxx，浏览器按服务 UUID 发现控制器。
+ * 通知任务每 10 ms 请求一次发送；真正发送在 NimBLE 主机事件队列执行。
+ * 只发送最新姿态，不累计历史动作，避免玩家看到滞后的操控输入。
+ * 共享连接状态由 ble_lock 保护，最多保留一个待处理发送事件。
+ */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -16,36 +23,47 @@
 #include "gyro_packet.h"
 
 static const char *TAG="gyro_ble";
-// 7b6a0001-8e7f-4a23-a83b-e55a7634cc01; NimBLE UUID bytes are reversed.
+// 主服务 UUID 为 7b6a0001-8e7f-4a23-a83b-e55a7634cc01；NimBLE 数组按反序存放。
+// 0002 为姿态特征，0003 为命令特征，需与浏览器常量保持一致。
 static const ble_uuid128_t service_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5a,0xe5,0x3b,0xa8,0x23,0x4a,0x7f,0x8e,0x01,0x00,0x6a,0x7b);
 static const ble_uuid128_t motion_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5a,0xe5,0x3b,0xa8,0x23,0x4a,0x7f,0x8e,0x02,0x00,0x6a,0x7b);
 static const ble_uuid128_t command_uuid=BLE_UUID128_INIT(0x01,0xcc,0x34,0x76,0x5a,0xe5,0x3b,0xa8,0x23,0x4a,0x7f,0x8e,0x03,0x00,0x6a,0x7b);
 
+// 命令 5 字节：操作码（1=校准，2=时钟探测）和浏览器生成的随机 ID。
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id; } command_t;
+// 应答 9 字节：相同操作码、相同 ID，以及执行命令时的设备微秒时钟。
 typedef struct __attribute__((packed)) { uint8_t op; uint32_t id, device_us; } reply_t;
 _Static_assert(sizeof(motion_packet_t)==20,"BLE motion must fit one notification");
 _Static_assert(sizeof(command_t)==5,"BLE command must be 5 bytes");
 _Static_assert(sizeof(reply_t)==9,"BLE reply must be 9 bytes");
+// last_reply 由 NimBLE 主机线程的 GATT 回调读写，保存最近一条命令应答。
 static reply_t last_reply;
+// 姿态特征句柄与当前连接句柄；NONE 表示尚未连接中心设备。
 static uint16_t motion_handle, connection=BLE_HS_CONN_HANDLE_NONE;
 static uint8_t own_addr_type;
+// subscribed：中心设备开启通知；synced：NimBLE 主机已同步。
+// notify_pending：事件已入队；notify_inflight：通知正在交给协议栈发送。
 static bool subscribed, notify_pending, notify_inflight, synced;
 static portMUX_TYPE ble_lock=portMUX_INITIALIZER_UNLOCKED;
 static struct ble_npl_event notify_event;
 
+// 复用公共编码器，保证 USB 和 BLE 的姿态字段与单位一致。
 static motion_packet_t make_packet(void) { return gyro_make_motion(); }
+// GATT 姿态 READ 回调：返回调用时的最新快照，不使用历史缓存。
 static int motion_access(uint16_t conn,uint16_t attr,struct ble_gatt_access_ctxt *ctxt,void *arg) {
     (void)conn; (void)attr; (void)arg;
     if(ctxt->op!=BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_READ_NOT_PERMITTED;
     motion_packet_t packet=make_packet();
     return os_mbuf_append(ctxt->om,&packet,sizeof(packet))==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
 }
+// GATT 命令回调：WRITE 校验并执行命令，READ 返回最近应答供浏览器核对。
 static int command_access(uint16_t conn,uint16_t attr,struct ble_gatt_access_ctxt *ctxt,void *arg) {
     (void)conn; (void)attr; (void)arg;
     if(ctxt->op==BLE_GATT_ACCESS_OP_READ_CHR)
         return os_mbuf_append(ctxt->om,&last_reply,sizeof(last_reply))==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
     if(ctxt->op!=BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     command_t command; uint16_t len=0;
+    // 长度必须恰为 5；将 mbuf 展平后再解析，避免越界或错误格式。
     if(OS_MBUF_PKTLEN(ctxt->om)!=sizeof(command) ||
        ble_hs_mbuf_to_flat(ctxt->om,&command,sizeof(command),&len)!=0 || len!=sizeof(command))
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -54,6 +72,7 @@ static int command_access(uint16_t conn,uint16_t attr,struct ble_gatt_access_ctx
     last_reply=(reply_t){.op=command.op,.id=command.id,.device_us=(uint32_t)esp_timer_get_time()};
     return 0;
 }
+// GATT 表以全零项结束；姿态允许读/通知，命令允许读/带响应写。
 static const struct ble_gatt_svc_def services[]={
     {.type=BLE_GATT_SVC_TYPE_PRIMARY,.uuid=&service_uuid.u,
      .characteristics=(struct ble_gatt_chr_def[]){
@@ -63,11 +82,14 @@ static const struct ble_gatt_svc_def services[]={
     {0}
 };
 static void advertise(void);
+// 读取中心设备实际采用的连接参数；请求间隔不等于实际间隔。
+// 这些诊断日志在 USB 双模式固件中被 quiet_console 抑制。
 static void log_interval(uint16_t handle) {
     struct ble_gap_conn_desc desc;
     if(ble_gap_conn_find(handle,&desc)==0)
         ESP_LOGI(TAG,"BLE interval=%.2f ms, latency=%u, supervision=%u ms",desc.conn_itvl*1.25f,desc.conn_latency,desc.supervision_timeout*10);
 }
+// GAP 事件在主机线程处理，更新连接、订阅、发送完成及广播状态。
 static int gap_event(struct ble_gap_event *event,void *arg) {
     (void)arg;
     switch(event->type) {
@@ -79,6 +101,7 @@ static int gap_event(struct ble_gap_event *event,void *arg) {
         ESP_LOGI(TAG,"BLE connected; handle=%u",connection);
         log_interval(connection);
         break;
+    // 真正断开后清理发送状态，并重新广播以允许浏览器再次连接。
     case BLE_GAP_EVENT_DISCONNECT:
         portENTER_CRITICAL(&ble_lock);
         connection=BLE_HS_CONN_HANDLE_NONE; subscribed=false; notify_inflight=false;
@@ -91,13 +114,15 @@ static int gap_event(struct ble_gap_event *event,void *arg) {
             portENTER_CRITICAL(&ble_lock); subscribed=event->subscribe.cur_notify; portEXIT_CRITICAL(&ble_lock);
             ESP_LOGI(TAG,"Motion notifications %s",subscribed?"enabled":"disabled");
             if(subscribed) {
-                // Finish GATT discovery before negotiating a faster link on Windows.
+                // 先完成 Windows 的 GATT 发现，再请求更快连接，降低发现阶段失败概率。
+                // 间隔单位 1.25 ms：6～12 对应 7.5～15 ms；监督超时单位 10 ms。
                 struct ble_gap_upd_params params={.itvl_min=6,.itvl_max=12,.latency=0,.supervision_timeout=200};
                 int rc=ble_gap_update_params(connection,&params);
                 if(rc) ESP_LOGW(TAG,"Interval request returned %d; central chooses actual interval",rc);
             }
         }
         break;
+    // 通知已交给协议栈处理后释放在途标记；这是发送事件，不是应用层收包确认。
     case BLE_GAP_EVENT_NOTIFY_TX:
         if(event->notify_tx.attr_handle==motion_handle && !event->notify_tx.indication) {
             portENTER_CRITICAL(&ble_lock); notify_inflight=false; portEXIT_CRITICAL(&ble_lock);
@@ -113,6 +138,7 @@ static int gap_event(struct ble_gap_event *event,void *arg) {
     }
     return 0;
 }
+// 广播主包携带服务 UUID，扫描响应携带设备名，避免超过广播长度限制。
 static void advertise(void) {
     struct ble_hs_adv_fields fields={0};
     fields.flags=BLE_HS_ADV_F_DISC_GEN|BLE_HS_ADV_F_BREDR_UNSUP;
@@ -124,11 +150,13 @@ static void advertise(void) {
     fields.name=(const uint8_t*)name; fields.name_len=strlen(name); fields.name_is_complete=1;
     rc=ble_gap_adv_rsp_set_fields(&fields);
     if(rc) { ESP_LOGE(TAG,"Advertising name failed: %d",rc); return; }
+    // 可连接、可发现广播；间隔单位 0.625 ms，48～80 对应 30～50 ms。
     struct ble_gap_adv_params params={.conn_mode=BLE_GAP_CONN_MODE_UND,.disc_mode=BLE_GAP_DISC_MODE_GEN,.itvl_min=48,.itvl_max=80};
     rc=ble_gap_adv_start(own_addr_type,NULL,BLE_HS_FOREVER,&params,gap_event,NULL);
     if(rc) ESP_LOGE(TAG,"Advertising start failed: %d",rc);
     else ESP_LOGI(TAG,"Advertising %s; select it from the game's Bluetooth picker",name);
 }
+// 主机同步后选择地址，以蓝牙地址末两字节生成设备名，再开始广播。
 static void on_sync(void) {
     int rc=ble_hs_util_ensure_addr(0); assert(rc==0);
     rc=ble_hs_id_infer_auto(0,&own_addr_type); assert(rc==0);
@@ -138,12 +166,14 @@ static void on_sync(void) {
     portENTER_CRITICAL(&ble_lock); synced=true; portEXIT_CRITICAL(&ble_lock);
     advertise();
 }
+// 协议栈复位后撤销全部连接和发送标记，等待下一次同步回调。
 static void on_reset(int reason) {
     portENTER_CRITICAL(&ble_lock);
     synced=false; connection=BLE_HS_CONN_HANDLE_NONE; subscribed=false; notify_inflight=false; notify_pending=false;
     portEXIT_CRITICAL(&ble_lock);
     ESP_LOGW(TAG,"BLE host reset: %d",reason);
 }
+// 主机事件队列回调：只在已同步、已订阅、已连接且无在途通知时发送。
 static void notify_latest(struct ble_npl_event *event) {
     (void)event;
     portENTER_CRITICAL(&ble_lock);
@@ -157,8 +187,9 @@ static void notify_latest(struct ble_npl_event *event) {
     struct os_mbuf *buffer=ble_hs_mbuf_from_flat(&packet,sizeof(packet));
     int rc=buffer?ble_gatts_notify_custom(conn,motion_handle,buffer):BLE_HS_ENOMEM;
     if(rc) { portENTER_CRITICAL(&ble_lock); notify_inflight=false; portEXIT_CRITICAL(&ble_lock); }
-    // NimBLE consumes the mbuf, including on error. No historical samples are queued here.
+    // mbuf 交由 NimBLE 接管，包括失败路径；这里不释放、不积累历史采样。
 }
+// 独立定时任务只投递事件；防止跨线程直接发送，且最多积压一个事件。
 static void notification_task(void *arg) {
     (void)arg; TickType_t wake=xTaskGetTickCount();
     for(;;) {
@@ -170,14 +201,18 @@ static void notification_task(void *arg) {
         if(queue) ble_npl_eventq_put(nimble_port_get_dflt_eventq(),&notify_event);
     }
 }
+// 运行 NimBLE 主机事件循环，循环结束后释放其 FreeRTOS 运行环境。
 static void host_task(void *arg) {
     (void)arg; nimble_port_run(); nimble_port_freertos_deinit();
 }
+// NimBLE 提供的存储配置初始化函数，由协议栈组件实现。
 void ble_store_config_init(void);
+// 初始化 GAP/GATT、安全能力、回调和任务；启动过程仅执行一次。
 void ble_controller_start(void) {
-    esp_log_level_set("NimBLE",ESP_LOG_WARN); // Avoid formatting a log for every notification.
+    esp_log_level_set("NimBLE",ESP_LOG_WARN); // 避免每次通知都格式化日志，减少运行开销。
     ESP_ERROR_CHECK(nimble_port_init());
     ble_hs_cfg.sync_cb=on_sync; ble_hs_cfg.reset_cb=on_reset;
+    // 无键盘/显示输入能力，启用 Secure Connections 能力；不等于强制链路已加密。
     ble_hs_cfg.sm_io_cap=BLE_HS_IO_NO_INPUT_OUTPUT;
     ble_hs_cfg.sm_sc=1;
     ble_svc_gap_init(); ble_svc_gatt_init();
