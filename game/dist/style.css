@@ -32,3 +32,6 @@ header,footer{background:linear-gradient(90deg,#06121ec9,#06121e8c);backdrop-fil
 .intro{text-shadow:0 2px 18px #03151d}.intro:before{content:"";position:absolute;inset:-30px -55px;z-index:-1;background:radial-gradient(ellipse,#071722c9,transparent 72%);pointer-events:none}
 .intro p{color:#c0d2d9}.aircraft-label{text-shadow:0 2px 8px #041621}
 body.playing .grain{background:linear-gradient(180deg,#03101b75,transparent 27%,transparent 76%,#030c1640)}
+.gyro-nose-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 12px 0}
+.gyro-nose-field select{min-width:110px;font-size:11px;padding:7px}
+.lobby-button{display:block;width:100%;margin-top:12px;padding:12px;border-color:#86f8df40;color:#aec6d4}

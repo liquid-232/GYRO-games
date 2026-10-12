@@ -1,6 +1,6 @@
 import * as T from './vendor/three.module.js';
 import { createGyroModel, createBodyAxes, poseQuaternion } from './gyro-model.js';
-import { createAircraftPoseModel } from './aircraft-model.js';
+import { createAircraftPoseModel, setAircraftNoseDirection, NOSE_DIRECTIONS } from './aircraft-model.js';
 import { CALIBRATING, SENSOR_OK } from './ble-protocol.js';
 
 function textTexture(text, color) {
@@ -30,6 +30,10 @@ export class GyroPoseView {
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
     this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftLoad = null;
+    this.noseDirection = '+X';
+    try { const saved = localStorage.getItem('gyro-preview-nose'); if (NOSE_DIRECTIONS.includes(saved)) this.noseDirection = saved; } catch {}
+    this.$('gyroNoseDirection').value = this.noseDirection;
+    this.$('gyroNoseDirection').onchange = () => this.setNoseDirection(this.$('gyroNoseDirection').value);
     this.requestedModel = 'aircraft'; this.modelKind = 'aircraft'; this.disposed = false;
     this.board.visible = false;
     this.body = new T.Group(); this.body.add(this.board, createBodyAxes(axisLabel)); this.scene.add(this.body);
@@ -78,9 +82,17 @@ export class GyroPoseView {
     this.$('gyroModelTitle').textContent = kind === 'board' ? 'MPU6050 · 实时姿态' : 'F-22 · 实时姿态';
     this.$('gyroModelWatermark').textContent = kind === 'board' ? 'GY-521 / BODY AXES' : 'F-22 RAPTOR / BODY AXES';
     this.$('gyroModelCanvas').setAttribute('aria-label', `${kind === 'board' ? 'MPU6050' : 'F-22 飞机'}三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴`);
+    this.$('gyroNoseDirection').disabled = kind === 'board';
     this.$('gyroModelAxesHelp').textContent = kind === 'board'
       ? '三轴交于芯片中心，箭头指向正方向。X 指向安装孔一侧，Y 指向 VCC 一端，Z 垂直芯片面向上。浅色网格为水平参考。'
-      : '三轴交于机身中心，箭头指向正方向。X 指向机头，Y 指向左翼，Z 指向机背上方。浅色网格为水平参考。';
+      : `三轴交于机身中心；机头朝向 ${this.noseDirection ?? '+X'}。箭头指向传感器正方向，浅色网格为水平参考。`;
+  }
+  setNoseDirection(direction) {
+    if (!NOSE_DIRECTIONS.includes(direction)) return;
+    this.noseDirection = direction;
+    if (this.aircraft) setAircraftNoseDirection(this.aircraft, direction);
+    try { localStorage.setItem('gyro-preview-nose', direction); } catch {}
+    if (this.modelKind === 'aircraft') this.$('gyroModelAxesHelp').textContent = `三轴交于机身中心；机头朝向 ${direction}。箭头指向传感器正方向，浅色网格为水平参考。`;
   }
   async loadAircraft() {
     const response = await fetch('assets/airplane-f22.glb');
@@ -88,6 +100,7 @@ export class GyroPoseView {
     const buffer = await response.arrayBuffer();
     if (this.disposed) return;
     const aircraft = createAircraftPoseModel(buffer);
+    setAircraftNoseDirection(aircraft, this.noseDirection);
     aircraft.visible = false; this.body.add(aircraft); this.aircraft = aircraft;
     // Local studio reflections preserve the metal finish of the game's aircraft.
     const studio = new T.Scene(); studio.background = new T.Color(0x344a5d);
@@ -115,11 +128,11 @@ export class GyroPoseView {
   }
   stop() { if (this.frame != null) cancelAnimationFrame(this.frame); this.frame = null; }
   setVisible(visible) {
-    this.visible = visible; this.stop();
-    if (visible && !document.hidden) { this.resize(); this.draw(); }
+    this.visible = visible && this.controller.selected; this.stop();
+    if (this.visible && !document.hidden) { this.resize(); this.draw(); }
   }
   draw() {
-    if (!this.visible || document.hidden || this.contextLost) return;
+    if (!this.visible || !this.controller.selected || document.hidden || this.contextLost) return;
     const gyro = this.controller, packet = gyro.feed.packet, live = gyro.fresh;
     if (!gyro.connected) {
       this.hasPose = false; this.body.quaternion.identity();

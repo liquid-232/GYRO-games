@@ -56,7 +56,7 @@ Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: tr
 const elements = new Map();
 const element = id => {
   if (!elements.has(id)) elements.set(id, { textContent: '', dataset: {}, value: '', type: 'range', checked: false,
-    classList: { add() {}, remove() {}, contains() { return true; } }, setAttribute() {}, addEventListener() {}, focus() {} });
+    classList: { items: new Set(id === 'gyroPanel' ? ['hidden'] : []), add(k) {this.items.add(k);}, remove(k) {this.items.delete(k);}, contains(k) {return this.items.has(k);}, toggle(k,v) {if(v)this.items.add(k);else this.items.delete(k);} }, setAttribute() {}, addEventListener() {}, focus() {} });
   return elements.get(id);
 };
 const documentHandlers = new Map();
@@ -94,11 +94,23 @@ const device = { name: 'GYRO-C3-BLE-TEST',
 Object.defineProperty(globalThis, 'navigator', { value: { bluetooth: { requestDevice: async () => device } }, configurable: true });
 const { GyroController } = await import('./dist/gyro.js');
 const interruptions = [];
-const controller = new GyroController({ onInterrupt: message => interruptions.push(message) });
+const previewVisibility=[];
+const controller = new GyroController({ onInterrupt: message => interruptions.push(message), onPanelVisibility: visible => previewVisibility.push(visible) });
+assert.equal(controller.selected,true,'Bluetooth is the default control mode');
+assert.equal(element('controlMode').value,'gyro');
+element('gyroToggle').onclick();
+element('controlMode').value='keyboard';element('controlMode').onchange();
+assert.equal(controller.selected,false);assert.equal(controller.sample(.02),null);
+assert.equal(element('gyroModelCard').classList.contains('hidden'),true);assert.equal(previewVisibility.at(-1),false);
+element('controlMode').value='gyro';element('controlMode').onchange();
+assert.equal(element('gyroModelCard').classList.contains('hidden'),false);assert.equal(previewVisibility.at(-1),true);
+element('gyroClose').onclick();
+interruptions.length=0;
 await controller.connect(); await controller.commandTail;
 controller.selected = true;
 for (let seq = 1; seq <= 20; seq++) { clock += 10; motion.emit(frame(seq, clock * 1000)); }
 controller.center(); assert.equal(controller.canFly, true);
+interruptions.length=0;
 assert.deepEqual(controller.sample(.02), { x: 0, y: 0 });
 clock += 10; motion.emit(frame(21, clock * 1000, 25, -25));
 assert.ok(controller.sample(.1).x > .99); assert.ok(controller.output.y > .99, 'tilt moves both game axes');

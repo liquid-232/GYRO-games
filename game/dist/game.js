@@ -20,7 +20,7 @@ const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause(
  if(!visible||poseLoad)return;
  poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{
    poseView=new GyroPoseView($('gyroModel'),gyro);
-   poseView.setVisible(!$('gyroPanel').classList.contains('hidden'));
+   poseView.setVisible(gyro.selected && !$('gyroPanel').classList.contains('hidden'));
  }).catch(()=>{$('gyroModelState').textContent='3D 预览暂不可用，角度读数和操控仍可使用';poseLoad=null;});
 }});
 function permitFlight(){if(gyro.canFly)return true;notice(gyro.pauseMessage);return false;}
@@ -36,6 +36,21 @@ function reset(){if(!permitFlight())return;for(const list of [objects,shots,host
 function updateHUD(){$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(1600+player.y*160);}
 function end(){mode='over';document.body.classList.remove('playing');$('pause').disabled=true;const newBest=score>best;best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}$('best').textContent=String(best).padStart(6,'0');$('report').innerHTML=`任务得分 <b>${Math.floor(score)}</b><br>拾取金币 <b>${coins}</b><br>击毁目标 <b>${kills}</b><br>飞行距离 <b>${(distance/1000).toFixed(2)} km</b><br>${newBest?'新纪录':'历史最佳'} <b>${best}</b>`;$('endOverlay').classList.remove('hidden');tone(100,.6,'sawtooth',.045);}
 function pause(){if(mode==='playing'){$('pauseReason').textContent='准备好后继续任务。';mode='paused';keys.clear();touch.fire=false;touch.x=touch.y=0;$('thumb').style.transform='';$('pauseOverlay').classList.remove('hidden');document.body.classList.remove('playing');}else if(mode==='paused'){if(!permitFlight()){$('pauseReason').textContent=gyro.pauseMessage;return;}mode='playing';$('pauseOverlay').classList.add('hidden');document.body.classList.add('playing');}}
+function returnLobby(){
+ if(mode!=='paused')return;
+ best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}
+ $('best').textContent=String(best).padStart(6,'0');
+ for(const list of [objects,shots,hostile,effects])clearList(list);
+ keys.clear();touch.x=touch.y=0;touch.fire=false;$('thumb').style.transform='';
+ hp=5;score=coins=kills=distance=elapsed=0;islandMap.reset();level=1;speed=26;invuln=spawnTimer=shotTimer=shake=noticeTimer=0;
+ player.x=0;player.y=5;mode='menu';menuTime=0;
+ document.body.classList.remove('playing');$('pause').disabled=true;
+ $('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('overlay').classList.remove('hidden');
+ $('hitflash').style.opacity=0;$('notice').style.opacity=0;
+ aircraft.visible=true;aircraft.scale.setScalar(.85);aircraft.position.set(3.2,5,0);aircraft.rotation.set(.12,Math.PI*.16,-.13);
+ camera.position.set(12,15,23);camera.lookAt(0,4,-1);updateHUD();
+ $('gyroClose').onclick();$('start').focus();
+}
 function toggleFire(){autoFire=!autoFire;$('fireMode').innerHTML=`◉ ${autoFire?'自动开火':'手动开火'} <span>${autoFire?'ON':'SPACE'}</span>`;$('fireMode').setAttribute('aria-pressed',autoFire);}
 function particleBurst(pos,color,count=16){for(let i=0;i<count;i++){const mat=new T.MeshBasicMaterial({color,transparent:true});const mesh=new T.Mesh(geo.particle,mat);mesh.position.copy(pos);world.add(mesh);effects.push({mesh,ownedMaterial:true,life:.5+Math.random()*.4,vel:new T.Vector3((Math.random()-.5)*12,(Math.random()-.5)*10,(Math.random()-.5)*12)});}}
 function damage(){if(invuln>0||mode!=='playing')return;hp--;invuln=1.7;shake=.4;tone(80,.25,'sawtooth',.08);particleBurst(new T.Vector3(player.x,player.y,player.z),0xffa765,10);notice(hp<=2?'机体受损 · 注意闪避':'受到撞击 · 护盾恢复中');if(hp<=0){end();updateHUD();}}
@@ -66,7 +81,7 @@ function tick(dt){const motion=gyro.sample(dt);if(mode!=='playing'||(gyro.select
  updateHUD();}
 async function boot(){try{const response=await fetch('assets/airplane-f22.glb');if(!response.ok)throw Error(`HTTP ${response.status}`);aircraft=parseAircraft(await response.arrayBuffer());scene.add(aircraft);aircraft.scale.setScalar(.85);mode='menu';$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';animate();}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='模型加载失败。请通过本地 HTTP 服务打开游戏，并确认 assets/airplane-f22.glb 存在。'+e.message;}}
 let last=performance.now(),menuTime=0;function animate(now=performance.now()){requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.033);last=now;if(mode==='playing')tick(dt);else if(mode==='menu'){menuTime+=dt;islandMap.update(0,menuTime);aircraft.visible=true;aircraft.position.set(3.2,5+Math.sin(menuTime*.8)*.2,0);aircraft.rotation.set(.12,Math.PI*.16+Math.sin(menuTime*.18)*.12,-.13);camera.position.set(12,15,23);camera.lookAt(0,4,-1);}if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}renderer.render(scene,camera);}
-$('start').onclick=$('restart').onclick=reset;$('pause').onclick=$('resume').onclick=pause;$('fireMode').onclick=toggleFire;$('sound').onclick=()=>{muted=!muted;$('sound').textContent=`音效 ${muted?'OFF':'ON'}`;$('sound').setAttribute('aria-label',muted?'开启音效':'关闭音效');tone(700,.15);};
+$('start').onclick=$('restart').onclick=reset;$('pause').onclick=$('resume').onclick=pause;$('returnLobby').onclick=returnLobby;$('fireMode').onclick=toggleFire;$('sound').onclick=()=>{muted=!muted;$('sound').textContent=`音效 ${muted?'OFF':'ON'}`;$('sound').setAttribute('aria-label',muted?'开启音效':'关闭音效');tone(700,.15);};
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel'))return;if(e.target.tagName==='BUTTON'&&e.code==='Space'&&mode!=='playing')return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat)pause();return;}if(e.code==='KeyF'&&!e.repeat)toggleFire();if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(mode==='playing')pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&mode==='playing')pause();});
 const stick=$('stick');let stickId=null;function stickMove(e){const r=stick.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,mag=Math.max(1,Math.hypot(x,y)/40);touch.x=x/mag/40;touch.y=-y/mag/40;$('thumb').style.transform=`translate(${touch.x*32}px,${-touch.y*32}px)`;}stick.onpointerdown=e=>{stickId=e.pointerId;stick.setPointerCapture(e.pointerId);stickMove(e);};stick.onpointermove=e=>{if(e.pointerId===stickId)stickMove(e);};stick.onpointerup=stick.onpointercancel=()=>{stickId=null;touch.x=touch.y=0;$('thumb').style.transform='';};$('touchFire').onpointerdown=e=>{touch.fire=true;e.target.setPointerCapture(e.pointerId);};$('touchFire').onpointerup=$('touchFire').onpointercancel=()=>touch.fire=false;
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});

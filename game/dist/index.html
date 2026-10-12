@@ -4,20 +4,21 @@
 <header><a class="brand" href="./"><span class="brand-mark">↗</span><div>GYRO <small>FLIGHT SYSTEMS</small></div></a><div class="mission"><span class="live"></span> OPERATION / ARCHIPELAGO <b>苍穹突击 · 群岛战区</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">蓝牙体感</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
 <aside id="gyroPanel" class="gyro-panel hidden" aria-labelledby="gyroTitle">
   <div class="gyro-heading"><div><span class="eyebrow">MOTION FLIGHT</span><h2 id="gyroTitle">蓝牙体感飞行</h2></div><button id="gyroClose" aria-label="关闭体感设置">×</button></div>
-  <label class="gyro-field">操控方式<select id="controlMode"><option value="keyboard">键盘 / 触屏</option><option value="gyro">MPU6050 蓝牙体感</option></select></label>
+  <label class="gyro-field">操控方式<select id="controlMode"><option value="gyro" selected>MPU6050 蓝牙体感</option><option value="keyboard">键盘 / 触屏</option></select></label>
   <p class="gyro-guide">① 开启电脑蓝牙，点击连接并选择开发板<br>② 保持控制器静止约 2–4 秒<br>③ 以舒适握姿设置中位后开始飞行</p>
   <div class="gyro-connect"><div class="gyro-device">蓝牙控制器<b id="gyroDevice">GYRO-C3-BLE-xxxx</b></div><button id="gyroConnect">连接蓝牙</button><button id="gyroDisconnect" disabled>断开</button></div>
   <div id="gyroStatus" class="gyro-status" role="status">尚未连接</div>
   <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
   <div class="gyro-pose">横滚 / 俯仰 <b id="gyroTilt">— / —</b></div>
-  <section class="gyro-model-card" aria-labelledby="gyroModelTitle">
+  <section id="gyroModelCard" class="gyro-model-card" aria-labelledby="gyroModelTitle">
     <div class="gyro-model-heading"><span id="gyroModelTitle">F-22 · 实时姿态</span><div><button id="gyroViewIso" type="button" aria-pressed="true">立体</button><button id="gyroViewTop" type="button" aria-pressed="false">俯视</button></div></div>
     <div class="gyro-model-switch" role="group" aria-label="姿态预览模型"><button id="gyroShowAircraft" type="button" aria-pressed="true">飞机</button><button id="gyroShowBoard" type="button" aria-pressed="false">陀螺仪</button><span id="gyroModelLoading" role="status"></span></div>
+    <label class="gyro-nose-field" for="gyroNoseDirection">预览机头朝向<select id="gyroNoseDirection"><option value="+X">+X 轴</option><option value="-X">−X 轴</option><option value="+Y">+Y 轴</option><option value="-Y">−Y 轴</option><option value="+Z">+Z 轴</option><option value="-Z">−Z 轴</option></select></label>
     <div id="gyroModel" class="gyro-model"><canvas id="gyroModelCanvas" aria-label="F-22 飞机三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴"></canvas><span id="gyroModelWatermark" class="gyro-model-watermark">F-22 RAPTOR / BODY AXES</span></div>
     <p id="gyroModelState" class="gyro-model-state" role="status">未连接 · 显示水平参考模型</p>
     <div class="gyro-axis-values"><div class="axis-x">X · 横滚<b id="gyroRollValue">—</b></div><div class="axis-y">Y · 俯仰<b id="gyroPitchValue">—</b></div><div class="axis-z">Z · 相对偏航<b id="gyroYawValue">—</b></div></div>
-    <p id="gyroModelAxesHelp" class="gyro-model-help">三轴交于机身中心，箭头指向正方向。X 指向机头，Y 指向左翼，Z 指向机背上方。浅色网格为水平参考。</p>
-    <p class="gyro-model-help">显示传感器姿态，不受游戏中位、反向或交换轴设置影响。偏航以静止校准为参考，可能随时间漂移。</p>
+    <p id="gyroModelAxesHelp" class="gyro-model-help">三轴交于机身中心；机头朝向 +X。箭头指向传感器正方向，浅色网格为水平参考。</p>
+    <p class="gyro-model-help">机头朝向用于调整飞机预览。显示传感器姿态，不受游戏中位、反向或交换轴设置影响。偏航以静止校准为参考，可能随时间漂移。</p>
   </section>
   <div class="gyro-buttons"><button id="gyroCenter" class="gyro-accent" disabled>以当前姿态为中位</button><button id="gyroCalibrate" disabled>重新校准</button></div>
   <label class="gyro-slider" for="gyroSensitivity">满速倾角 <output id="gyroSensitivityValue">25°</output><input id="gyroSensitivity" type="range" min="12" max="45" step="1" value="25"><small>角度越小，操控越灵敏</small></label>
@@ -31,8 +32,8 @@
 <div class="right-readout"><span>SECTOR</span><b id="sector">01</b><span id="speed">720 KM/H</span></div>
 <div id="notice" role="status" aria-live="polite"></div><div id="hitflash"></div><div id="reticle">＋</div>
 <section id="overlay" class="overlay"><div class="intro"><div class="eyebrow">01 / ARCHIPELAGO PATROL</div><h1>掌控天空<span>苍穹突击</span></h1><p id="introText">掠过碧海群岛，穿越岩礁航道。<br>驾驶金属 F-22，收集补给，迎击敌机。</p><div class="features"><span>◈ 金币收集</span><span>⌁ 极限闪避</span><span>⌖ 空中交战</span></div><button id="start" class="primary" disabled>正在装载战机 <span>↗</span></button><p class="best">个人最佳 <b id="best">000000</b> <span>LOCAL RECORD</span></p></div><div class="aircraft-label"><span>YOUR AIRCRAFT</span><h2>F-22 <em>RAPTOR</em></h2><p>定制金属机身 / 双发 / 平滑曲面</p><div>● 系统就绪 <span>MK. 01</span></div></div></section>
-<section id="pauseOverlay" class="modal hidden"><div><span class="eyebrow">FLIGHT ON HOLD</span><h2>飞行已暂停</h2><p id="pauseReason">准备好后继续任务。</p><button id="resume" class="primary">继续飞行 ↗</button></div></section>
+<section id="pauseOverlay" class="modal hidden"><div><span class="eyebrow">FLIGHT ON HOLD</span><h2>飞行已暂停</h2><p id="pauseReason">准备好后继续任务。</p><button id="resume" class="primary">继续飞行 ↗</button><button id="returnLobby" class="lobby-button">返回大厅</button></div></section>
 <section id="endOverlay" class="modal hidden"><div><span class="eyebrow">MISSION REPORT</span><h2>本次出击结束</h2><div id="report"></div><button id="restart" class="primary">再次出击 ↗</button></div></section>
-<footer><div class="controls"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd> 移动</span><span><kbd>SPACE</kbd> 开火</span><span><kbd>F</kbd> 切换模式</span></div><button id="fireMode">◉ 自动开火 <span>ON</span></button><span id="controlHint" class="footer-id">WASD / 方向键移动 · 空格开火</span></footer>
+<footer><div class="controls"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd> 移动</span><span><kbd>SPACE</kbd> 开火</span><span><kbd>F</kbd> 切换模式</span></div><button id="fireMode">◉ 自动开火 <span>ON</span></button><span id="controlHint" class="footer-id">蓝牙倾斜移动 · 空格开火 · P 暂停</span></footer>
 <div id="touch"><div id="stick" aria-label="拖动控制飞机"><div id="thumb"></div></div><button id="touchFire" aria-label="按住开火">FIRE</button></div>
 <div id="loadError" class="hidden" role="alert"></div></main><script type="module" src="lifecycle.js"></script><script type="module" src="game.js"></script></body></html>
