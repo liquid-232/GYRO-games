@@ -1,21 +1,21 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06121e"><title>GYRO · 苍穹突击</title><link rel="stylesheet" href="style.css"></head>
 <body><main id="app"><canvas id="scene" aria-label="3D 空战场景"></canvas><div class="grain"></div>
-<header><a class="brand" href="./"><span class="brand-mark">↗</span><div>GYRO <small>FLIGHT SYSTEMS</small></div></a><div class="mission"><span class="live"></span> OPERATION / SKYSTRIKE <b>苍穹突击</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">体感控制</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
+<header><a class="brand" href="./"><span class="brand-mark">↗</span><div>GYRO <small>FLIGHT SYSTEMS</small></div></a><div class="mission"><span class="live"></span> OPERATION / SKYSTRIKE <b>苍穹突击</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">蓝牙体感</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
 <aside id="gyroPanel" class="gyro-panel hidden" aria-labelledby="gyroTitle">
-  <div class="gyro-heading"><div><span class="eyebrow">MOTION FLIGHT</span><h2 id="gyroTitle">体感飞行</h2></div><button id="gyroClose" aria-label="关闭体感设置">×</button></div>
-  <label class="gyro-field">操控方式<select id="controlMode"><option value="keyboard">键盘 / 触屏</option><option value="gyro">MPU6050 体感</option></select></label>
-  <p class="gyro-guide">① 电脑连接 <b>GYRO-C3-xxxx</b> Wi-Fi<br>密码 <b>GyroPlay32</b> · 游戏可离线运行<br>② 连接控制器，静置约 2–4 秒<br>③ 保持舒适握姿，设置中位后开始</p>
-  <div class="gyro-connect"><label>控制器地址<input id="gyroAddress" value="192.168.4.1" maxlength="15" inputmode="decimal" autocomplete="off" aria-label="控制器 IPv4 地址"></label><button id="gyroConnect">连接</button><button id="gyroDisconnect" disabled>断开</button></div>
+  <div class="gyro-heading"><div><span class="eyebrow">MOTION FLIGHT</span><h2 id="gyroTitle">蓝牙体感飞行</h2></div><button id="gyroClose" aria-label="关闭体感设置">×</button></div>
+  <label class="gyro-field">操控方式<select id="controlMode"><option value="keyboard">键盘 / 触屏</option><option value="gyro">MPU6050 蓝牙体感</option></select></label>
+  <p class="gyro-guide">① 开启电脑蓝牙，点击连接并选择开发板<br>② 保持控制器静止约 2–4 秒<br>③ 以舒适握姿设置中位后开始飞行</p>
+  <div class="gyro-connect"><div class="gyro-device">蓝牙控制器<b id="gyroDevice">GYRO-C3-BLE-xxxx</b></div><button id="gyroConnect">连接蓝牙</button><button id="gyroDisconnect" disabled>断开</button></div>
   <div id="gyroStatus" class="gyro-status" role="status">尚未连接</div>
-  <div class="gyro-metrics"><div>通信往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
+  <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
   <div class="gyro-pose">横滚 / 俯仰 <b id="gyroTilt">— / —</b></div>
   <div class="gyro-buttons"><button id="gyroCenter" class="gyro-accent" disabled>以当前姿态为中位</button><button id="gyroCalibrate" disabled>重新校准</button></div>
   <label class="gyro-slider" for="gyroSensitivity">满速倾角 <output id="gyroSensitivityValue">25°</output><input id="gyroSensitivity" type="range" min="12" max="45" step="1" value="25"><small>角度越小，操控越灵敏</small></label>
   <label class="gyro-slider" for="gyroDeadzone">中心死区 <output id="gyroDeadzoneValue">1.5°</output><input id="gyroDeadzone" type="range" min="0" max="5" step="0.5" value="1.5"></label>
   <div class="gyro-checks"><label><input id="gyroInvertX" type="checkbox">左右反向</label><label><input id="gyroInvertY" type="checkbox">上下反向</label><label><input id="gyroSwap" type="checkbox">交换轴向</label></div>
   <p id="gyroMessage" class="gyro-message" aria-live="polite">断线或数据超过 150ms 未更新会暂停飞行；重新连接后请设置中位。</p>
-  <p class="gyro-footnote">通信往返时间不等于动作到画面的总延迟。设置完成后关闭面板，点击开始或继续飞行。</p>
+  <p class="gyro-footnote">使用 Chrome 或 Edge。命令往返时间不等于动作到画面的总延迟。设置完成后关闭面板，点击开始或继续飞行。</p>
 </aside>
 <section id="hud" aria-label="飞行仪表"><div class="stat"><label>MISSION SCORE / 得分</label><strong id="score">000000</strong></div><div class="stat coin-stat"><label>CREDITS / 金币</label><strong><i>◈</i> <span id="coins">0</span></strong></div><div class="stat"><label>HULL / 机体</label><div id="health"><i></i><i></i><i></i><i></i><i></i></div></div></section>
 <div class="side-readout"><span>ALT</span><b id="alt">2400</b><div class="ticks">―<br>─<br>―<br>─<br>―</div><span>METERS</span></div>

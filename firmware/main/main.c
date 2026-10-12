@@ -1,38 +1,23 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
-#include "esp_netif.h"
-#include "esp_event.h"
-#include "esp_wifi.h"
-#include "esp_mac.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
-#include "lwip/sockets.h"
 #include "attitude.h"
+#include "ble_controller.h"
 
 #define SDA_PIN 4
 #define SCL_PIN 5
-#define UDP_PORT 4210
 #define SENSOR_OK 1
 #define CALIBRATING 2
 #define READY 4
 static const char *TAG="gyro";
 
-// ESP32-C3 is little-endian. Protocol layout is shared with game/gyro_bridge.py.
-typedef struct __attribute__((packed)) {
-    char magic[4]; uint32_t session, sequence, device_us;
-    float roll, pitch, gx, gy, gz; uint16_t flags, period_us;
-} motion_packet_t;
-typedef struct __attribute__((packed)) { char magic[4]; uint32_t session, op, arg; } command_t;
-_Static_assert(sizeof(motion_packet_t)==40, "Motion protocol must be 40 bytes");
-_Static_assert(sizeof(command_t)==16, "Command protocol must be 16 bytes");
-static motion_packet_t latest={.magic={'G','Y','R','1'},.period_us=5000};
+static gyro_snapshot_t latest={.period_us=5000};
 static portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
 static bool calibrate_requested;
 static i2c_master_bus_handle_t bus;
@@ -93,80 +78,46 @@ static void sensor_task(void *arg) {
             }
             float a[]={word(data)/8192.f,word(data+2)/8192.f,word(data+4)/8192.f};
             float g[]={word(data+8)/65.5f,word(data+10)/65.5f,word(data+12)/65.5f};
-            motion_packet_t packet={.magic={'G','Y','R','1'},.sequence=++sequence,.device_us=(uint32_t)now,
-                .gx=g[0],.gy=g[1],.gz=g[2],.period_us=(uint16_t)fminf(now-last_sample,65535)};
+            gyro_snapshot_t packet={.sequence=++sequence,.device_us=(uint32_t)now,
+                .motion_dps=sqrtf(g[0]*g[0]+g[1]*g[1]+g[2]*g[2]),
+                .period_us=(uint16_t)fminf(now-last_sample,65535)};
             float roll, pitch;
             attitude_step(&filter,a,g,(now-last_sample)/1000000.f,&roll,&pitch);
             packet.roll=roll; packet.pitch=pitch;
+            if(filter.ready) {
+                float x=g[0]-filter.bias[0],y=g[1]-filter.bias[1],z=g[2]-filter.bias[2];
+                packet.motion_dps=sqrtf(x*x+y*y+z*z);
+            }
             last_sample=now;
             packet.flags=SENSOR_OK|(filter.ready?READY:CALIBRATING);
             portENTER_CRITICAL(&lock); latest=packet; portEXIT_CRITICAL(&lock);
             if(now-last_report>2000000) {
                 ESP_LOGI(TAG,"%s sample=%lu roll=%.2f pitch=%.2f calibration=%u/400",
                     filter.ready?"READY":"KEEP STILL",(unsigned long)sequence,packet.roll,packet.pitch,filter.count);
+                if(!filter.ready) ESP_LOGI(TAG,"Calibration input: |accel|=%.3fg gyro=(%.2f,%.2f,%.2f) dps",
+                    sqrtf(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),g[0],g[1],g[2]);
                 last_report=now;
             }
         }
         ESP_LOGW(TAG,"Sensor stream interrupted; reinitializing");
     }
 }
-static void wireless_task(void *arg) {
-    (void)arg;
-    int fd=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
-    if(fd<0) { ESP_LOGE(TAG,"UDP socket failed"); vTaskDelete(NULL); return; }
-    struct sockaddr_in local={.sin_family=AF_INET,.sin_port=htons(UDP_PORT),.sin_addr.s_addr=htonl(INADDR_ANY)};
-    if(bind(fd,(struct sockaddr*)&local,sizeof(local))!=0) { ESP_LOGE(TAG,"UDP bind failed"); close(fd); vTaskDelete(NULL); return; }
-    fcntl(fd,F_SETFL,O_NONBLOCK);
-    struct sockaddr_in peer={0}; uint32_t session=0;
-    int64_t expires=0,next_send=0;
-    TickType_t wake=xTaskGetTickCount();
-    for(;;) {
-        int64_t now=esp_timer_get_time();
-        // Bound work per iteration, so a burst cannot starve the sensor task.
-        for(int i=0;i<8;i++) {
-            uint8_t bytes[17]; struct sockaddr_in from; socklen_t len=sizeof(from);
-            int n=recvfrom(fd,bytes,sizeof(bytes),0,(struct sockaddr*)&from,&len);
-            if(n<0) break;
-            if(n!=16) continue;
-            command_t command; memcpy(&command,bytes,16);
-            if(memcmp(command.magic,"GYC1",4) || !command.session) continue;
-            bool owner=session==command.session && peer.sin_addr.s_addr==from.sin_addr.s_addr && peer.sin_port==from.sin_port;
-            if(command.op==1 && (now>=expires || owner)) { peer=from; session=command.session; owner=true; }
-            if(!owner) continue;
-            expires=now+3000000;
-            if(command.op==2) {
-                command_t pong={.magic={'G','Y','P','1'},.session=session,.op=command.arg,.arg=(uint32_t)now};
-                sendto(fd,&pong,sizeof(pong),0,(struct sockaddr*)&peer,sizeof(peer));
-            } else if(command.op==3) {
-                portENTER_CRITICAL(&lock); calibrate_requested=true; portEXIT_CRITICAL(&lock);
-            } else if(command.op==4) { expires=0; session=0; }
-        }
-        if(session && now<expires && now>=next_send) {
-            motion_packet_t packet;
-            portENTER_CRITICAL(&lock); packet=latest; portEXIT_CRITICAL(&lock);
-            packet.session=session;
-            if((uint32_t)((uint32_t)now-packet.device_us)>100000) packet.flags=0;
-            sendto(fd,&packet,sizeof(packet),0,(struct sockaddr*)&peer,sizeof(peer));
-            next_send=now+10000; // Always latest sample; never replay a backlog.
-        }
-        vTaskDelayUntil(&wake,pdMS_TO_TICKS(1));
-    }
+void gyro_get_snapshot(gyro_snapshot_t *out) {
+    portENTER_CRITICAL(&lock); *out=latest; portEXIT_CRITICAL(&lock);
+    if ((uint32_t)((uint32_t)esp_timer_get_time()-out->device_us)>100000) out->flags=0;
+}
+void gyro_request_calibration(void) {
+    portENTER_CRITICAL(&lock);
+    calibrate_requested=true;
+    latest.flags=(latest.flags&SENSOR_OK)?SENSOR_OK|CALIBRATING:0;
+    portEXIT_CRITICAL(&lock);
 }
 void app_main(void) {
     esp_err_t error=nvs_flash_init();
-    if(error==ESP_ERR_NVS_NO_FREE_PAGES || error==ESP_ERR_NVS_NEW_VERSION_FOUND) { ESP_ERROR_CHECK(nvs_flash_erase()); error=nvs_flash_init(); }
+    if(error==ESP_ERR_NVS_NO_FREE_PAGES || error==ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase()); error=nvs_flash_init();
+    }
     ESP_ERROR_CHECK(error);
-    ESP_ERROR_CHECK(esp_netif_init()); ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_ap();
-    wifi_init_config_t init=WIFI_INIT_CONFIG_DEFAULT(); ESP_ERROR_CHECK(esp_wifi_init(&init));
-    uint8_t mac[6]; ESP_ERROR_CHECK(esp_read_mac(mac,ESP_MAC_WIFI_SOFTAP));
-    wifi_config_t wifi={.ap={.password="GyroPlay32",.channel=6,.max_connection=1,.authmode=WIFI_AUTH_WPA2_PSK,.pmf_cfg={.required=false}}};
-    snprintf((char*)wifi.ap.ssid,sizeof(wifi.ap.ssid),"GYRO-C3-%02X%02X",mac[4],mac[5]);
-    wifi.ap.ssid_len=strlen((char*)wifi.ap.ssid);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP)); ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP,&wifi));
-    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP,WIFI_BW20)); ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    ESP_LOGI(TAG,"Join Wi-Fi %s, password GyroPlay32; controller 192.168.4.1:%d",wifi.ap.ssid,UDP_PORT);
+    ble_controller_start();
     configASSERT(xTaskCreate(sensor_task,"imu",4096,NULL,8,NULL)==pdPASS);
-    configASSERT(xTaskCreate(wireless_task,"udp",4096,NULL,5,NULL)==pdPASS);
 }
