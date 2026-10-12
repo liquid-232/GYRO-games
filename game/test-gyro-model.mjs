@@ -30,7 +30,7 @@ const plane = createAircraftPoseModel(bytes.buffer.slice(bytes.byteOffset, bytes
 near(new T.Vector3(0,0,-1).applyQuaternion(plane.quaternion).x,1);
 near(new T.Vector3(-1,0,0).applyQuaternion(plane.quaternion).y,1);
 near(new T.Vector3(0,1,0).applyQuaternion(plane.quaternion).z,1);
-assert.equal(plane.children[0].children.length,32, 'preview loads the full game aircraft');
+assert.equal(plane.children[0].children.filter(child=>child.isMesh).length,32, 'preview loads the full game aircraft');
 const planeBounds = new T.Box3().setFromObject(plane);
 near(planeBounds.getCenter(new T.Vector3()).length(),0);
 near(Math.max(...planeBounds.getSize(new T.Vector3()).toArray()),2.6);
