@@ -1,3 +1,4 @@
+import { NOSE_DIRECTIONS, centeredControlAngles, poseQuaternion, meanPose } from './control-frame.js';
 import { BLE_SERVICE, BLE_MOTION, BLE_COMMAND, MotionFeed, SENSOR_OK, CALIBRATING, READY, STALE_MS, PAUSE_AFTER_MS } from './ble-protocol.js';
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const angleDelta = (value, center) => ((value - center + 540) % 360) - 180;
@@ -9,8 +10,10 @@ const deadline = async (operation, ms = 5000) => {
 };
 
 export class GyroController {
-  constructor({ onInterrupt, onPanelVisibility = () => {} }) {
-    this.onInterrupt = onInterrupt;
+  constructor({ onInterrupt, onPanelVisibility = () => {}, onNoseDirection = () => {} }) {
+    this.onInterrupt = onInterrupt; this.onNoseDirection = onNoseDirection;
+    this.noseDirection = '+X';
+    try { const saved = localStorage.getItem('gyro-preview-nose'); if (NOSE_DIRECTIONS.includes(saved)) this.noseDirection = saved; } catch {}
     this.selected = true; this.neutral = null; this.feed = new MotionFeed();
     this.output = { x: 0, y: 0 }; this.device = null; this.motion = null; this.control = null;
     this.generation = 0; this.connecting = false; this.calibrationPending = false;
@@ -34,16 +37,18 @@ export class GyroController {
   invalidate() { this.neutral = null; this.output = { x: 0, y: 0 }; this.feed.history = []; }
   get connected() { return !!(this.device?.gatt.connected && this.motion && this.control); }
   get fresh() { return this.connected && !this.calibrationPending && this.feed.isFresh(performance.now()); }
-  get canFly() { return !this.selected || !!(this.fresh && this.neutral); }
+  get headingAvailable() { return !this.noseDirection.endsWith('Z') || this.feed.packet?.yaw != null; }
+  get canFly() { return !this.selected || !!(this.fresh && this.neutral && this.headingAvailable); }
 
   get mustPause() {
     const flags = this.feed.packet?.flags || 0;
-    if (!this.connected || !this.neutral || this.calibrationPending || !(flags & SENSOR_OK) || !(flags & READY)) return true;
+    if (!this.connected || !this.neutral || !this.headingAvailable || this.calibrationPending || !(flags & SENSOR_OK) || !(flags & READY)) return true;
     const age = this.feed.age(performance.now());
     return age == null || age >= PAUSE_AFTER_MS;
   }
   get pauseMessage() {
     if (!this.connected) return '蓝牙已断开，请重新连接并设置中位。';
+    if (!this.headingAvailable) return '机头沿 Z 轴时需要三轴姿态数据，请升级 GYB2 固件后重新设置中位。';
     const flags = this.feed.packet?.flags || 0;
     if (this.feed.packet && !(flags & SENSOR_OK)) return '蓝牙仍连接，但 MPU6050 采样异常，请检查接线，恢复后设置中位。';
     if (this.calibrationPending || flags & CALIBRATING) return '传感器正在校准，请保持静止，完成后重新设置中位。';
@@ -61,8 +66,8 @@ export class GyroController {
       if (this.mustPause) this.onInterrupt(this.pauseMessage);
       return this.output;
     }
-    const { roll, pitch } = this.feed.packet, s = this.settings;
-    let x = angleDelta(roll, this.neutral.roll), y = -angleDelta(pitch, this.neutral.pitch);
+    const s = this.settings;
+    let { x, y } = centeredControlAngles(this.feed.packet, this.neutral, this.noseDirection);
     if (s.swap) [x, y] = [y, x];
     x = axisValue(x, s.fullScale, s.deadzone) * (s.invertX ? -1 : 1);
     y = axisValue(y, s.fullScale, s.deadzone) * (s.invertY ? -1 : 1);
@@ -72,15 +77,25 @@ export class GyroController {
   }
 
   center() {
+    if (!this.headingAvailable) { this.message(this.pauseMessage); return; }
     if (!this.fresh || this.feed.history.length < 15) { this.message('请先连接蓝牙，并将控制器静置到“姿态就绪”。'); return; }
-    const history = this.feed.history, last = history.at(-1);
-    if (!history.every(p => Math.abs(angleDelta(p.roll, last.roll)) < 1.5 && Math.abs(p.pitch - last.pitch) < 1.5 && p.motion_dps < 6)) {
+    const history = this.feed.history, last = history.at(-1), reference = poseQuaternion(last);
+    if (!history.every(p => poseQuaternion(p).angleTo(reference) < 1.5 * Math.PI / 180 && p.motion_dps < 6)) {
       this.message('控制器仍在移动，请保持舒适的握持姿态静止片刻。'); return;
     }
     this.neutral = { roll: last.roll + history.reduce((n, p) => n + angleDelta(p.roll, last.roll), 0) / history.length,
-      pitch: history.reduce((n, p) => n + p.pitch, 0) / history.length };
+      pitch: history.reduce((n, p) => n + p.pitch, 0) / history.length, yaw: last.yaw, orientation: meanPose(history) };
     this.output = { x: 0, y: 0 };
     this.message('中位已设定，可以开始蓝牙体感飞行。'); this.renderStatus();
+  }
+  setNoseDirection(direction) {
+    if (!NOSE_DIRECTIONS.includes(direction) || direction === this.noseDirection) return;
+    this.noseDirection = direction; this.invalidate();
+    try { localStorage.setItem('gyro-preview-nose', direction); } catch {}
+    this.onNoseDirection(direction);
+    this.message('机头朝向和操控轴已更新，请以新的握持姿态静止片刻，再设置中位。');
+    if (this.selected) this.onInterrupt('机头朝向已改变，请重新设置中位后继续。');
+    this.renderStatus();
   }
   message(text) { document.getElementById('gyroMessage').textContent = text; }
 
@@ -164,6 +179,8 @@ export class GyroController {
 
   bindUI(onPanelVisibility) {
     const $ = id => document.getElementById(id);
+    $('gyroNoseDirection').value = this.noseDirection;
+    $('gyroNoseDirection').onchange = () => this.setNoseDirection($('gyroNoseDirection').value);
     $('controlMode').value = this.selected ? 'gyro' : 'keyboard';
     $('gyroModelCard').classList.toggle('hidden', !this.selected);
     const open = () => { $('gyroPanel').classList.remove('hidden'); $('gyroToggle').setAttribute('aria-expanded', 'true'); this.onInterrupt('调整体感设置后，可继续飞行。'); $('gyroClose').focus(); onPanelVisibility(this.selected); };
@@ -200,6 +217,7 @@ export class GyroController {
     else if (linked && !alive) status = !packet ? '蓝牙已连接 · 等待姿态数据' : this.mustPause ? '蓝牙已连接 · 数据持续中断' : '蓝牙已连接 · 数据短暂停顿';
     else if (alive && !(packet?.flags & SENSOR_OK)) status = '蓝牙已连接 · 请检查 MPU6050 接线';
     else if (alive && (packet?.flags & CALIBRATING || this.calibrationPending)) status = '静置校准中';
+    else if (this.fresh && !this.headingAvailable) status = '机头沿 Z 轴 · 请升级 GYB2 三轴固件';
     else if (this.fresh) status = this.neutral ? '蓝牙体感已就绪' : '姿态就绪 · 请设置中位';
     else if (alive) status = '采样中断 · 请检查传感器';
     $('gyroStatus').textContent = status; $('gyroStatus').dataset.ready = String(!!(this.fresh && this.neutral));
@@ -214,7 +232,7 @@ export class GyroController {
     $('gyroAge').textContent = linked && packet?.flags & SENSOR_OK && age != null ? `${Math.min(9999, Math.round(age))} ms` : '—';
     $('gyroTilt').textContent = alive && packet?.flags & SENSOR_OK ? `${packet.roll.toFixed(1)}° / ${packet.pitch.toFixed(1)}°` : '— / —';
     $('gyroSensitivityValue').textContent = `${this.settings.fullScale}°`; $('gyroDeadzoneValue').textContent = `${this.settings.deadzone.toFixed(1)}°`;
-    $('gyroCenter').disabled = !this.fresh; $('gyroCalibrate').disabled = !alive || !(packet?.flags & SENSOR_OK) || this.pendingCommands > 0;
+    $('gyroCenter').disabled = !this.fresh || !this.headingAvailable; $('gyroCalibrate').disabled = !alive || !(packet?.flags & SENSOR_OK) || this.pendingCommands > 0;
     $('controlHint').textContent = this.selected ? '蓝牙倾斜移动 · 空格开火 · P 暂停' : 'WASD / 方向键移动 · 空格开火';
     if (this.selected && this.mustPause) this.onInterrupt(this.pauseMessage);
   }

@@ -1,4 +1,6 @@
 import * as T from './vendor/three.module.js';
+import { aircraftMountQuaternion, NOSE_DIRECTIONS } from './control-frame.js';
+export { NOSE_DIRECTIONS } from './control-frame.js';
 import { createPanelLines, f22PanelPaths } from './panel-lines.js';
 
 // The exported model has one identity-transformed mesh per named part.
@@ -18,13 +20,9 @@ export function createAircraftPoseModel(buffer) {
   return model;
 }
 
-export const NOSE_DIRECTIONS = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
 export function setAircraftNoseDirection(model, direction = '+X') {
   if (!NOSE_DIRECTIONS.includes(direction)) direction = '+X';
-  const forward = new T.Vector3(); forward.setComponent('XYZ'.indexOf(direction[1]), direction[0] === '+' ? 1 : -1);
-  const up = new T.Vector3(...(direction[1] === 'Z' ? [1,0,0] : [0,0,1]));
-  const left = new T.Vector3().crossVectors(up, forward);
-  const mounting = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(forward, left, up));
+  const mounting = aircraftMountQuaternion(direction);
   const sourceToSensor = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().set(
     0, 0, -1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1));
   model.quaternion.copy(mounting).multiply(sourceToSensor);

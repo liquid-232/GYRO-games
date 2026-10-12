@@ -59,12 +59,7 @@ export function createGyroModel(makeLabel = () => null) {
   return root;
 }
 
-export function poseQuaternion(packet, target = new T.Quaternion()) {
-  // Firmware uses body-to-world Rz(yaw) * Ry(pitch) * Rx(roll).
-  return target.setFromEuler(new T.Euler(
-    T.MathUtils.degToRad(packet.roll), T.MathUtils.degToRad(packet.pitch),
-    T.MathUtils.degToRad(packet.yaw ?? 0), 'ZYX'));
-}
+export { poseQuaternion } from './control-frame.js';
 
 export function createBodyAxes(makeLabel = () => null) {
   const group = new T.Group(); group.name = 'sensor-axes';

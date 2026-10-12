@@ -139,6 +139,23 @@ assert.equal(controller.neutral, null, 'a sensor fault must still invalidate cen
 for (let seq = 46; seq <= 65; seq++) { clock += 10; motion.emit(frame(seq, clock * 1000)); }
 controller.center(); assert.equal(controller.canFly, true);
 wrongReply = true; await assert.rejects(controller.command(2), /应答不匹配/); wrongReply = false;
+// The actual UI setting updates the controller, resets center and maps sensor axes.
+controller.setNoseDirection('+Y');
+assert.equal(controller.neutral,null);assert.deepEqual(controller.output,{x:0,y:0});assert.equal(controller.connected,true);
+for(let seq=66;seq<=85;seq++){clock+=10;motion.emit(frame(seq,clock*1000));}
+controller.center();assert.equal(controller.canFly,true);
+clock+=10;motion.emit(frame(86,clock*1000,0,25));
+assert.ok(controller.sample(.1).x>.99, '+Y nose uses positive sensor Y rotation as right roll');
+assert.ok(Math.abs(controller.output.y)<.001);
+controller.setNoseDirection('+Z');assert.equal(controller.headingAvailable,false);assert.equal(controller.canFly,false);
+assert.match(controller.pauseMessage,/GYB2/);
+for(let seq=87;seq<=106;seq++){
+  clock+=10;const packet=frame(seq,clock*1000);packet.setUint32(0,0x32425947,true);packet.setInt16(18,0,true);motion.emit(packet);
+}
+controller.center();assert.equal(controller.canFly,true);
+clock+=10;const zPacket=frame(107,clock*1000);zPacket.setUint32(0,0x32425947,true);zPacket.setInt16(18,2500,true);motion.emit(zPacket);
+assert.ok(controller.sample(.1).x>.99, '+Z nose uses sensor Z rotation as right roll');
+assert.ok(Math.abs(controller.output.y)<.001);
 device.gatt.disconnect();
 assert.equal(controller.connected, false); assert.equal(controller.neutral, null, 'actual BLE disconnect invalidates center');
 assert.equal(motion.listeners.size, 0);

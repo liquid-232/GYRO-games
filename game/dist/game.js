@@ -15,7 +15,7 @@ const world=new T.Group();scene.add(world);const objects=[],shots=[],hostile=[],
 let hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=0,shotTimer=0,noticeTimer=0,shake=0,best=0;
 try{best=Number(localStorage.getItem('gyro-skystrike-best'))||0;}catch{}$('best').textContent=String(best).padStart(6,'0');
 let poseView, poseLoad;
-const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause();$('pauseReason').textContent=message;}},onNotice:notice,onPanelVisibility:visible=>{
+const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause();$('pauseReason').textContent=message;}},onNotice:notice,onNoseDirection:direction=>poseView?.setNoseDirection(direction),onPanelVisibility:visible=>{
  if(poseView){poseView.setVisible(visible);return;}
  if(!visible||poseLoad)return;
  poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{

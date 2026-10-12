@@ -30,10 +30,7 @@ export class GyroPoseView {
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
     this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftLoad = null;
-    this.noseDirection = '+X';
-    try { const saved = localStorage.getItem('gyro-preview-nose'); if (NOSE_DIRECTIONS.includes(saved)) this.noseDirection = saved; } catch {}
-    this.$('gyroNoseDirection').value = this.noseDirection;
-    this.$('gyroNoseDirection').onchange = () => this.setNoseDirection(this.$('gyroNoseDirection').value);
+    this.noseDirection = controller.noseDirection;
     this.requestedModel = 'aircraft'; this.modelKind = 'aircraft'; this.disposed = false;
     this.board.visible = false;
     this.body = new T.Group(); this.body.add(this.board, createBodyAxes(axisLabel)); this.scene.add(this.body);
@@ -91,7 +88,6 @@ export class GyroPoseView {
     if (!NOSE_DIRECTIONS.includes(direction)) return;
     this.noseDirection = direction;
     if (this.aircraft) setAircraftNoseDirection(this.aircraft, direction);
-    try { localStorage.setItem('gyro-preview-nose', direction); } catch {}
     if (this.modelKind === 'aircraft') this.$('gyroModelAxesHelp').textContent = `三轴交于机身中心；机头朝向 ${direction}。箭头指向传感器正方向，浅色网格为水平参考。`;
   }
   async loadAircraft() {
