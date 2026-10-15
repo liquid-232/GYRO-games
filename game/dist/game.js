@@ -41,11 +41,11 @@ function selectMap(kind){
  islandMap.root.visible=!orbital;if(spaceMap)spaceMap.root.visible=orbital;
  activeMap=orbital?spaceMap:islandMap;activeMap.reset();
  if(thrusters)thrusters.root.visible=orbital;
- scene.fog=orbital?new T.FogExp2(0x070c19,.0014):new T.FogExp2(0x78979e,.005);
- renderer.setClearColor(orbital?0x030610:0x72939c);renderer.toneMappingExposure=orbital?1.22:1.12;
- hemisphere.color.setHex(orbital?0x789bff:0xc2deeb);hemisphere.groundColor.setHex(orbital?0x080e28:0x263b3c);hemisphere.intensity=orbital?1.65:2.3;
- sun.color.setHex(orbital?0xffebd0:0xffe8c4);sun.intensity=orbital?3.8:3.3;sun.position.set(orbital?-45:-32,38,orbital?35:-45);
- rim.color.setHex(orbital?0x548dff:0xb5e4ff);rim.intensity=orbital?3.2:1.8;
+ scene.fog=orbital?null:new T.FogExp2(0x78979e,.005);
+ renderer.setClearColor(orbital?0x030610:0x72939c);renderer.toneMappingExposure=orbital?1.08:1.12;
+ hemisphere.color.setHex(orbital?0xa2b8d3:0xc2deeb);hemisphere.groundColor.setHex(orbital?0x080e28:0x263b3c);hemisphere.intensity=orbital?.7:2.3;
+ sun.color.setHex(orbital?0xffebd0:0xffe8c4);sun.intensity=orbital?3.2:3.3;sun.position.set(orbital?-78:-32,orbital?48:38,orbital?39:-45);
+ rim.color.setHex(orbital?0x7fa4c4:0xb5e4ff);rim.intensity=orbital?.85:1.8;
  document.body.dataset.map=selectedMap;
  $('mapIsland').setAttribute('aria-pressed',String(!orbital));$('mapSpace').setAttribute('aria-pressed',String(orbital));
  $('missionLocation').textContent=orbital?'ORBITAL EXCLUSION / 轨道禁区':'ARCHIPELAGO / 群岛战区';

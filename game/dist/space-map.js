@@ -1,20 +1,13 @@
 import * as T from './vendor/three.module.js';
-// Original offline orbital scenery. Shared assets are reused by each obstacle.
+import { createEarth } from './earth-model.js';
+import { createOrbitalMaterials } from './orbital-materials.js';
+// Offline orbital scenery. Static mechanical details are batched by material.
 const TAU=Math.PI*2;
-const hull=new T.MeshStandardMaterial({color:0x718694,metalness:.78,roughness:.4});
-const dark=new T.MeshStandardMaterial({color:0x233342,metalness:.65,roughness:.55});
-const edge=new T.MeshStandardMaterial({color:0xc7cec9,metalness:.75,roughness:.32});
+let hull,dark,edge,solar,foil;
+function prepareMaterials(){if(hull)return;({hull,dark,edge,solar,foil}=createOrbitalMaterials());}
 const orange=new T.MeshBasicMaterial({color:0xffac55});
-const blue=new T.MeshBasicMaterial({color:0x73d9ff});
+const blue=new T.MeshBasicMaterial({color:0x91becb});
 const boxGeo=new T.BoxGeometry(1,1,1),sphereGeo=new T.SphereGeometry(1,16,10);
-const solar=new T.MeshStandardMaterial({color:0x142c58,metalness:.68,roughness:.28});
-solar.onBeforeCompile=shader=>{
- shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
- float gx=step(.94,fract(vMapUv.x*12.)),gy=step(.91,fract(vMapUv.y*5.));
- diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.28,.37,.42),max(gx,gy)*.7);`);
-};
-// A 1px white map enables the material UV path without any downloaded assets.
-const whiteMap=new T.DataTexture(new Uint8Array([255,255,255,255]),1,1);whiteMap.needsUpdate=true;solar.map=whiteMap;
 const rockGeo=new T.IcosahedronGeometry(1,2);
 const positions=rockGeo.attributes.position;
 for(let i=0;i<positions.count;i++){
@@ -23,7 +16,7 @@ for(let i=0;i<positions.count;i++){
  positions.setXYZ(i,x*f,y*f,z*f);
 }
 rockGeo.computeVertexNormals();
-const rockMaterial=new T.MeshStandardMaterial({color:0x72737b,roughness:.94,metalness:.14});
+const rockMaterial=new T.MeshStandardMaterial({color:0x67645e,roughness:.96,metalness:.04});
 rockMaterial.onBeforeCompile=shader=>{
  shader.vertexShader='varying vec3 rockPoint;\n'+shader.vertexShader;
  shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nrockPoint=position;');
@@ -31,11 +24,11 @@ rockMaterial.onBeforeCompile=shader=>{
  shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
  float grain=sin(rockPoint.x*73.+sin(rockPoint.y*31.))*cos(rockPoint.z*68.);
  float vein=sin(rockPoint.y*19.+sin(rockPoint.x*12.)+rockPoint.z*8.);
- diffuseColor.rgb*=.75+.18*grain+.12*vein;`);
+ diffuseColor.rgb*=.88+.05*grain+.055*vein;`);
 };
 function box(group,material,position,scale){const m=new T.Mesh(boxGeo,material);m.position.set(...position);m.scale.set(...scale);group.add(m);return m;}
 function satellite(){
- const g=new T.Group();box(g,hull,[0,0,0],[1.3,1.5,1.4]);box(g,edge,[0,.85,0],[1.5,.2,1.6]);
+ prepareMaterials();const g=new T.Group();box(g,foil,[0,0,0],[1.3,1.5,1.4]);box(g,edge,[0,.85,0],[1.5,.2,1.6]);
  box(g,dark,[0,0,0],[5,.14,.2]);
  for(const x of [-1.9,1.9]){box(g,edge,[x,0,0],[2,.10,2]);box(g,solar,[x,.07,0],[1.9,.05,1.9]);}
  const dish=new T.Mesh(new T.SphereGeometry(.7,16,8,0,TAU,0,Math.PI*.35),edge);dish.rotation.z=-.6;dish.position.y=1.;g.add(dish);
@@ -43,24 +36,40 @@ function satellite(){
 }
 let satelliteTemplate;
 export function createOrbitalObstacle(x,y,z,r=1.8,variant=0){
- let mesh;
+ prepareMaterials();let mesh;
  if(variant%3===1){satelliteTemplate??=satellite();mesh=satelliteTemplate.clone();mesh.scale.setScalar(r/3.35);}
  else {mesh=new T.Mesh(rockGeo,rockMaterial);mesh.scale.setScalar(r);}
  mesh.position.set(x,y,z);
  return {type:'asteroid',mesh,r,spin:.16+variant*.025};
 }
-const gateRadius=4.7,gateTube=.48;
-const gateGeometry=new T.TorusGeometry(gateRadius,gateTube,8,48);
-const rimGeometry=new T.TorusGeometry(gateRadius,.045,5,64);
-export function createOrbitalGate(x,y,z){
- const mesh=new T.Group();mesh.name='Traversable orbital frame';mesh.position.set(x,y,z);
- mesh.add(new T.Mesh(gateGeometry,hull));
- for(const dz of [-.49,.49]){const rim=new T.Mesh(rimGeometry,blue);rim.position.z=dz;mesh.add(rim);}
- for(let i=0;i<8;i++){
-  const a=i/8*TAU,m=box(mesh,dark,[Math.cos(a)*gateRadius,Math.sin(a)*gateRadius,0],[.7,.72,1.15]);m.rotation.z=a;
-  const marker=box(mesh,i%2?orange:blue,[Math.cos(a)*gateRadius,Math.sin(a)*gateRadius,.60],[.24,.26,.04]);marker.rotation.z=a;
+// Bake static details once per template, keeping each gate to a few draw calls.
+function batchStatic(group){
+ group.updateMatrixWorld(true);const batches=new Map();
+ group.traverse(o=>{if(!o.isMesh)return;const g=o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone();g.applyMatrix4(o.matrixWorld);let batch=batches.get(o.material);if(!batch){batch={position:[],normal:[],uv:[]};batches.set(o.material,batch);}for(const key of Object.keys(batch)){const a=g.getAttribute(key);for(let i=0;i<a.array.length;i++)batch[key].push(a.array[i]);}g.dispose();});
+ const result=new T.Group();for(const [material,attrs] of batches){const geo=new T.BufferGeometry();for(const [name,a] of Object.entries(attrs))geo.setAttribute(name,new T.Float32BufferAttribute(a,name==='uv'?2:3));geo.computeBoundingSphere();result.add(new T.Mesh(geo,material));}return result;
+}
+const gateRadius=4.7;
+let gateTemplate;
+function buildGate(){
+ const g=new T.Group();g.add(new T.Mesh(new T.TorusGeometry(gateRadius,.4,12,96),dark));
+ const arc=TAU/24,shape=new T.Shape();shape.absarc(0,0,5.15,.012,arc-.012,false);shape.absarc(0,0,4.25,arc-.012,.012,true);shape.closePath();
+ const armor=new T.ExtrudeGeometry(shape,{depth:.78,bevelEnabled:true,bevelSegments:2,steps:1,bevelSize:.025,bevelThickness:.035,curveSegments:5});armor.translate(0,0,-.39);
+ for(let i=0;i<24;i++){const panel=new T.Mesh(armor,i%6===0?dark:hull);panel.rotation.z=i*arc;g.add(panel);}
+ for(const radius of [4.3,5.1])for(const z of [-.45,.45]){const rail=new T.Mesh(new T.TorusGeometry(radius,.025,5,96),edge);rail.position.z=z;g.add(rail);}
+ const boltGeo=new T.CylinderGeometry(.043,.043,.035,6);boltGeo.rotateX(Math.PI/2);
+ for(let i=0;i<24;i++){
+  const a=(i+.5)*arc;
+  for(const r of [4.38,5.02]){const bolt=new T.Mesh(boltGeo,edge);bolt.position.set(Math.cos(a)*r,Math.sin(a)*r,.45);g.add(bolt);}
+  if(i%3===0){
+   const mount=box(g,dark,[Math.cos(a)*gateRadius,Math.sin(a)*gateRadius,0],[.8,.4,1.1]);mount.rotation.z=a;
+   const light=box(g,blue,[Math.cos(a)*4.38,Math.sin(a)*4.38,.565],[.055,.23,.025]);light.rotation.z=a;
+   const caution=box(g,orange,[Math.cos(a)*4.95,Math.sin(a)*4.95,.565],[.16,.045,.02]);caution.rotation.z=a;
+  }
  }
- // Collider includes the outer brackets while preserving the hollow center.
+ const result=batchStatic(g);const geometry=new Set();g.traverse(o=>{if(o.isMesh&&o.geometry!==boxGeo)geometry.add(o.geometry);});for(const geo of geometry)geo.dispose();return result;
+}
+export function createOrbitalGate(x,y,z){
+ prepareMaterials();gateTemplate??=buildGate();const mesh=gateTemplate.clone();mesh.name='Segmented orbital transit frame';mesh.position.set(x,y,z);
  return {type:'gate',mesh,r:gateRadius,ringRadius:gateRadius,tube:.62,halfDepth:.62};
 }
 export function ringIntersects(object,x,y,z,padding=0){
@@ -72,48 +81,34 @@ function makeStars(){
  const geo=new T.BufferGeometry();geo.setAttribute('position',new T.Float32BufferAttribute(p,3));geo.setAttribute('color',new T.Float32BufferAttribute(c,3));
  return new T.Points(geo,new T.PointsMaterial({size:.6,sizeAttenuation:true,vertexColors:true,fog:false,transparent:true,opacity:.85}));
 }
-function planet(){
- const g=new T.Group();g.position.set(88,-48,-295);
- const shader=new T.ShaderMaterial({
- vertexShader:`varying vec3 vSurface;varying vec3 vNormal;varying vec3 vWorld;
- void main(){vSurface=position;vNormal=normalize(mat3(modelMatrix)*normal);vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
- fragmentShader:`varying vec3 vSurface;varying vec3 vNormal;varying vec3 vWorld;
- float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
- float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
- float fbm(vec3 p){float f=0.,a=.5;for(int i=0;i<5;i++){f+=a*noise(p);p=p*2.08+7.1;a*=.5;}return f;}
- void main(){vec3 n=normalize(vNormal),v=normalize(cameraPosition-vWorld),light=normalize(vec3(-.7,.55,.6)),p=normalize(vSurface);
- float terrain=fbm(p*4.7+vec3(3.,1.,-2.));float land=smoothstep(.49,.55,terrain);
- vec3 ocean=vec3(.008,.045,.11),ground=mix(vec3(.06,.13,.10),vec3(.24,.22,.15),smoothstep(.55,.73,terrain));
- vec3 color=mix(ocean,ground,land);float clouds=smoothstep(.53,.69,fbm(p*11.+vec3(8.))+noise(p*30.)*.1);
- color=mix(color,vec3(.72,.80,.85),clouds*.87);
- float diffuse=dot(n,light);color*=.08+1.3*max(0.,diffuse);
- float fresnel=pow(1.-max(0.,dot(n,v)),3.);color+=vec3(.045,.22,.48)*fresnel*smoothstep(-.35,.4,diffuse);
- float gloss=pow(max(0.,dot(n,normalize(light+v))),90.);color+=vec3(.7,.85,1.)*gloss*.35*(1.-land)*(1.-clouds);
- gl_FragColor=vec4(color,1.);
- #include <tonemapping_fragment>
- #include <colorspace_fragment>
- }`});
- g.add(new T.Mesh(new T.SphereGeometry(112,80,48),shader));
- const atmosphere=new T.Mesh(new T.SphereGeometry(114,64,40),new T.ShaderMaterial({transparent:true,depthWrite:false,blending:T.AdditiveBlending,
- vertexShader:`varying vec3 n;varying vec3 w;void main(){n=normalize(mat3(modelMatrix)*normal);vec4 p=modelMatrix*vec4(position,1.);w=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
- fragmentShader:`varying vec3 n;varying vec3 w;void main(){float rim=pow(1.-max(0.,dot(normalize(n),normalize(cameraPosition-w))),4.);float sun=smoothstep(-.4,.5,dot(normalize(n),normalize(vec3(-.7,.55,.6))));gl_FragColor=vec4(.12,.43,.9,rim*sun*.65);}`
- }));g.add(atmosphere);return g;
-}
 function distantStation(){
- const g=new T.Group();g.position.set(-66,22,-225);g.rotation.set(.3,.45,-.25);
- const torus=new T.Mesh(new T.TorusGeometry(26,1.35,10,72),hull);g.add(torus);
- const inner=new T.Mesh(new T.TorusGeometry(25,.12,6,72),blue);inner.position.z=1.2;g.add(inner);
- const core=new T.Mesh(new T.CylinderGeometry(3,3,19,12),hull);core.rotation.x=Math.PI/2;g.add(core);
- for(let i=0;i<6;i++){const a=i/6*TAU;const arm=box(g,dark,[Math.cos(a)*13,Math.sin(a)*13,0],[26,.9,1.1]);arm.rotation.z=a;const module=box(g,edge,[Math.cos(a)*26,Math.sin(a)*26,0],[5,3.6,4]);module.rotation.z=a;}
- for(const x of [-35,35]){box(g,dark,[x,0,0],[22,.8,1]);box(g,solar,[x,0,0],[13,.4,29]);}
- return g;
+ const g=new T.Group();
+ g.add(new T.Mesh(new T.TorusGeometry(26,1.1,12,96),hull));
+ for(const z of [-1.6,1.6]){const rail=new T.Mesh(new T.TorusGeometry(26,.24,8,96),edge);rail.position.z=z;g.add(rail);}
+ const core=new T.Mesh(new T.CylinderGeometry(3.2,3.2,19,24),hull);core.rotation.x=Math.PI/2;g.add(core);
+ const collar=new T.Mesh(new T.TorusGeometry(3.35,.28,8,32),dark);collar.position.z=8.7;g.add(collar);
+ for(let i=0;i<24;i++){
+  const a=i/24*TAU,m=box(g,dark,[Math.cos(a)*26,Math.sin(a)*26,0],[2.5,1.2,3.6]);m.rotation.z=a;
+  if(i%4===0){const mark=box(g,blue,[Math.cos(a)*26,Math.sin(a)*26,1.85],[.14,.65,.08]);mark.rotation.z=a;}
+ }
+ for(let i=0;i<6;i++){
+  const a=i/6*TAU,arm=new T.Group();arm.rotation.z=a;
+  for(const y of [-.65,.65])box(arm,edge,[14,y,0],[23,.22,.24]);
+  for(let j=0;j<8;j++){const brace=box(arm,dark,[4+j*2.8,0,0],[2.85,.16,.18]);brace.rotation.z=(j%2?1:-1)*.45;}
+  box(arm,hull,[25.8,0,0],[4.6,3.4,4.5]);box(arm,foil,[25.8,0,-2.4],[3.6,2.5,.35]);
+  for(let j=0;j<4;j++)box(arm,edge,[24.5+j*.85,0,2.35],[.12,3,.18]);g.add(arm);
+ }
+ for(const x of [-38,38]){
+  box(g,dark,[x,0,0],[26,.7,.9]);
+  for(const y of [-5.5,5.5]){box(g,edge,[x,y,0],[17,9.5,.24]);box(g,solar,[x,y,.16],[16.7,9.2,.07]);}
+  for(let i=0;i<5;i++)box(g,edge,[x-8+i*4,0,.24],[.1,20,.12]);
+ }
+ const result=batchStatic(g);const geometry=new Set();g.traverse(o=>{if(o.isMesh&&o.geometry!==boxGeo)geometry.add(o.geometry);});for(const geo of geometry)geo.dispose();
+ result.position.set(-66,22,-225);result.rotation.set(.3,.45,-.25);return result;
 }
 export function createSpaceMap(scene){
  const root=new T.Group();root.name='Orbital exclusion zone';scene.add(root);root.add(makeStars());
- const globe=planet(),station=distantStation();root.add(globe,station);
- const glowCanvas=document.createElement('canvas');glowCanvas.width=glowCanvas.height=64;const ctx=glowCanvas.getContext('2d');
- const grad=ctx.createRadialGradient(32,32,0,32,32,32);grad.addColorStop(0,'rgba(255,244,216,1)');grad.addColorStop(.08,'rgba(255,231,186,.9)');grad.addColorStop(.28,'rgba(236,179,109,.12)');grad.addColorStop(1,'rgba(236,179,109,0)');ctx.fillStyle=grad;ctx.fillRect(0,0,64,64);
- const lightSprite=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(glowCanvas),transparent:true,depthWrite:false,blending:T.AdditiveBlending,fog:false}));lightSprite.position.set(-140,100,-370);lightSprite.scale.set(75,75,1);root.add(lightSprite);
+ prepareMaterials();const globe=createEarth(),station=distantStation();root.add(globe.root,station);
  const debris=[];
  for(let i=0;i<30;i++){
   const side=i%2?1:-1,mesh=i%5===0?satellite():new T.Mesh(rockGeo,rockMaterial);
@@ -122,7 +117,7 @@ export function createSpaceMap(scene){
   debris.push({mesh,startZ:mesh.position.z,phase:i*.77});
  }
  function update(distance,time){
-  globe.rotation.y=time*.0015;station.rotation.z=-.25+time*.012;
+  globe.update(time);station.rotation.z=-.25+time*.012;
   for(const o of debris){o.mesh.position.z=80-((80-o.startZ-distance)%540+540)%540;o.mesh.rotation.set(o.phase+time*.025,time*.03+o.phase,o.phase*.3);}
  }
  update(0,0);root.visible=false;
