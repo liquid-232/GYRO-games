@@ -2,6 +2,7 @@ import * as T from './vendor/three.module.js';
 import { GyroController } from './gyro.js';
 import { parseAircraft } from './aircraft-model.js';
 import { createEnemyAircraft, ENEMY_EXTENTS } from './enemy-model.js';
+import { createEnemyMissile, animateEnemyMissile } from './missile-model.js';
 import { createIslandMap, createSeaStack } from './island-map.js';
 const $=id=>document.getElementById(id), clamp=T.MathUtils.clamp;
 let renderer;
@@ -25,8 +26,8 @@ const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause(
 }});
 function permitFlight(){if(gyro.canFly)return true;notice(gyro.pauseMessage);return false;}
 const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};
-const materials={coin:new T.MeshStandardMaterial({color:0xffd16b,metalness:.85,roughness:.2,emissive:0x805015,emissiveIntensity:.5}),laser:new T.MeshBasicMaterial({color:0xaaffdf}),red:new T.MeshBasicMaterial({color:0xff5b69})};
-const geo={coin:new T.TorusGeometry(.56,.15,6,14),shot:new T.CylinderGeometry(.06,.06,1.5,5),particle:new T.OctahedronGeometry(.14),enemyBullet:new T.SphereGeometry(.18,6,5)};
+const materials={coin:new T.MeshStandardMaterial({color:0xffd16b,metalness:.85,roughness:.2,emissive:0x805015,emissiveIntensity:.5}),laser:new T.MeshBasicMaterial({color:0xaaffdf})};
+const geo={coin:new T.TorusGeometry(.56,.15,6,14),shot:new T.CylinderGeometry(.06,.06,1.5,5),particle:new T.OctahedronGeometry(.14)};
 const islandMap=createIslandMap(scene);
 
 let audio;function tone(freq,dur,type='sine',vol=.025){if(muted)return;try{audio??=new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,audio.currentTime);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*.45),audio.currentTime+dur);g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur);}catch{}}
@@ -58,6 +59,14 @@ function addCoin(x,y,z){const mesh=new T.Mesh(geo.coin,materials.coin);mesh.posi
 function addRock(x,y,z,r=1.8){const stack=createSeaStack(x,y,z,r);world.add(stack.mesh);objects.push({type:'rock',...stack});}
 function rockHeightHit(o,y,padding=0){return y>o.bottom-padding&&y<o.top+padding;}
 function addEnemy(x,y,z){const mesh=createEnemyAircraft();mesh.position.set(x,y,z);world.add(mesh);objects.push({type:'enemy',mesh,r:1.15,hit:ENEMY_EXTENTS,hp:3+Math.min(3,level-1),baseX:x,phase:Math.random()*6.28,fire:2+Math.random()*2});}
+function launchEnemyMissile(enemy){
+ // Alternate underwing launch points and aim once, preserving the dodge timing.
+ const side=enemy.launchSide??-1;enemy.launchSide=-side;
+ const origin=new T.Vector3(side*.86,-.29,.48).applyQuaternion(enemy.mesh.quaternion).add(enemy.mesh.position);
+ const vel=new T.Vector3(player.x,player.y,player.z).sub(origin).normalize().multiplyScalar(38);
+ const mesh=createEnemyMissile(vel);mesh.position.copy(origin);world.add(mesh);
+ hostile.push({mesh,vel,life:5,age:0,flamePhase:elapsed*7+side});
+}
 function spawn(){const lane=(Math.floor(Math.random()*3)-1)*6;const y=4+Math.random()*5;
  for(let i=0;i<6;i++)addCoin(lane+Math.sin(i*.5)*.8,y,-100-i*3.6);
  const blocked=[-6,0,6].filter(x=>x!==lane);addRock(blocked[Math.floor(Math.random()*2)],3.5+Math.random()*5,-112,1.4+Math.random()*.8);
@@ -74,8 +83,8 @@ function tick(dt){const motion=gyro.sample(dt);if(mode!=='playing'||(gyro.select
  camera.position.lerp(new T.Vector3(player.x*.38,player.y+6,22),1-Math.exp(-5*dt));camera.lookAt(player.x*.45,player.y+1,-24);if(shake){camera.position.x+=(Math.random()-.5)*shake;camera.position.y+=(Math.random()-.5)*shake;}
  spawnTimer-=dt;if(spawnTimer<=0){spawn();spawnTimer=Math.max(1.6,3.4-level*.15);}shotTimer-=dt;if((autoFire||keys.has('Space')||touch.fire)&&shotTimer<=0){fire();shotTimer=.14;}
  for(let i=shots.length-1;i>=0;i--){const s=shots[i];s.prevZ=s.mesh.position.z;s.mesh.position.z-=115*dt;s.life-=dt;let hit=false;for(let j=objects.length-1;j>=0;j--){const o=objects[j];if(o.type==='coin')continue;const p=o.mesh.position;if(Math.abs(p.x-s.mesh.position.x)<(o.hit?.x??o.r)&&(o.type==='rock'?rockHeightHit(o,s.mesh.position.y):Math.abs(p.y-s.mesh.position.y)<(o.hit?.y??o.r))&&p.z>=s.mesh.position.z-(o.hit?.z??o.r)&&p.z<=s.prevZ+(o.hit?.z??o.r)){hit=true;if(o.type==='enemy'){o.hp--;particleBurst(s.mesh.position,0xffcf8a,3);if(o.hp<=0){particleBurst(p,0xff7755,20);score+=200;kills++;tone(140,.22,'sawtooth',.035);for(let k=0;k<3;k++)addCoin(p.x+(k-1)*.8,p.y,p.z-k*1.2);removeObject(j);}}else particleBurst(s.mesh.position,0xffb66c,2);break;}}if(hit||s.life<=0){world.remove(s.mesh);shots.splice(i,1);}}
- for(let i=objects.length-1;i>=0;i--){const o=objects[i];const p=o.mesh.position;p.z+=speed*dt;if(o.type==='coin'){o.mesh.rotation.y+=dt*2.8;if(Math.hypot(p.x-player.x,p.y-player.y)<1.3&&Math.abs(p.z-player.z)<1.8){coins++;score+=25;tone(1300,.09,'sine',.025);particleBurst(p,0xffd16b,5);removeObject(i);continue;}}else{if(o.type==='enemy'){p.x=clamp(o.baseX+Math.sin(elapsed*1.2+o.phase)*(elapsed<8?.35:1.8),-10,10);o.mesh.rotation.z=Math.cos(elapsed*1.2+o.phase)*.16;o.fire-=dt;if(o.fire<0&&p.z<-8&&p.z>-85){const mesh=new T.Mesh(geo.enemyBullet,materials.red);mesh.position.copy(p);const vel=new T.Vector3(player.x,player.y,player.z).sub(p).normalize().multiplyScalar(38);world.add(mesh);hostile.push({mesh,vel,life:5});o.fire=Math.max(.9,2.5-level*.12);}}if((o.type==='rock'?(Math.abs(p.x-player.x)<o.r+.65&&rockHeightHit(o,player.y,.65)):o.hit?Math.hypot((p.x-player.x)/(o.hit.x+.65),(p.y-player.y)/(o.hit.y+.65))<1:Math.hypot(p.x-player.x,p.y-player.y)<o.r+.65)&&Math.abs(p.z-player.z)<(o.hit?.z??o.r)+1){damage();if(mode==='over')return;}}if(p.z>25)removeObject(i);}
- for(let i=hostile.length-1;i>=0;i--){const b=hostile[i];b.mesh.position.addScaledVector(b.vel,dt);b.life-=dt;if(b.mesh.position.distanceTo(new T.Vector3(player.x,player.y,player.z))<.9){damage();b.life=0;if(mode==='over')return;}if(b.life<=0||b.mesh.position.z>30){world.remove(b.mesh);hostile.splice(i,1);}}
+ for(let i=objects.length-1;i>=0;i--){const o=objects[i];const p=o.mesh.position;p.z+=speed*dt;if(o.type==='coin'){o.mesh.rotation.y+=dt*2.8;if(Math.hypot(p.x-player.x,p.y-player.y)<1.3&&Math.abs(p.z-player.z)<1.8){coins++;score+=25;tone(1300,.09,'sine',.025);particleBurst(p,0xffd16b,5);removeObject(i);continue;}}else{if(o.type==='enemy'){p.x=clamp(o.baseX+Math.sin(elapsed*1.2+o.phase)*(elapsed<8?.35:1.8),-10,10);o.mesh.rotation.z=Math.cos(elapsed*1.2+o.phase)*.16;o.fire-=dt;if(o.fire<0&&p.z<-8&&p.z>-85){launchEnemyMissile(o);o.fire=Math.max(.9,2.5-level*.12);}}if((o.type==='rock'?(Math.abs(p.x-player.x)<o.r+.65&&rockHeightHit(o,player.y,.65)):o.hit?Math.hypot((p.x-player.x)/(o.hit.x+.65),(p.y-player.y)/(o.hit.y+.65))<1:Math.hypot(p.x-player.x,p.y-player.y)<o.r+.65)&&Math.abs(p.z-player.z)<(o.hit?.z??o.r)+1){damage();if(mode==='over')return;}}if(p.z>25)removeObject(i);}
+ for(let i=hostile.length-1;i>=0;i--){const b=hostile[i];b.mesh.position.addScaledVector(b.vel,dt);b.life-=dt;b.age+=dt;animateEnemyMissile(b.mesh,b.age,b.flamePhase);if(b.mesh.position.distanceTo(new T.Vector3(player.x,player.y,player.z))<.9){damage();b.life=0;if(mode==='over')return;}if(b.life<=0||b.mesh.position.z>30){world.remove(b.mesh);hostile.splice(i,1);}}
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=dt;e.mesh.position.addScaledVector(e.vel,dt);e.mesh.material.opacity=Math.max(0,e.life);if(e.life<=0){world.remove(e.mesh);e.mesh.material.dispose();effects.splice(i,1);}}
  islandMap.update(distance,elapsed);
  updateHUD();}
