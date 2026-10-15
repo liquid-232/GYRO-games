@@ -1,3 +1,4 @@
+import { applyMeasuredGrip } from './grip-profile.js';
 import { UsbSerialLink } from './usb-link.js';
 import { NOSE_DIRECTIONS, centeredControlAngles, poseQuaternion, meanPose } from './control-frame.js';
 import { BLE_SERVICE, BLE_MOTION, BLE_COMMAND, MotionFeed, SENSOR_OK, CALIBRATING, READY, STALE_MS, PAUSE_AFTER_MS } from './ble-protocol.js';
@@ -32,6 +33,10 @@ export class GyroController {
         deadzone: clamp(Number.isFinite(saved.deadzone) ? saved.deadzone : 1.5, 0, 5),
         invertX: saved.invertX === true, invertY: saved.invertY === true, swap: saved.swap === true };
     } catch {}
+    let gripStorage;
+    try { gripStorage = localStorage; } catch {}
+    const grip = applyMeasuredGrip(this.settings, this.noseDirection, gripStorage);
+    this.settings = grip.settings; this.noseDirection = grip.direction;
     this.bindUI(onPanelVisibility);
     this.uiTimer = setInterval(() => this.renderStatus(), 100);
     window.addEventListener('pagehide', () => this.disconnect());
