@@ -1,5 +1,6 @@
 import * as T from './vendor/three.module.js';
 import {GyroController} from './gyro.js';
+import {createMazeModel,disposeMazeModel} from './maze-model.js';
 import {createLevel,newBall,stepBall,RADIUS} from './maze-physics.js';
 const $=id=>document.getElementById(id),keys=new Set(),touch={x:0,y:0};
 let mode='menu',index=0,level,ball,elapsed=0,falls=0,collected=new Set(),accumulator=0,fallTime=0,poseView,poseLoad;
@@ -10,40 +11,29 @@ const gyro=new GyroController({onInterrupt:message=>pause(message),onNoseDirecti
 }});
 // 复用空战的硬件协议、校准与断流保护；为本游戏提供对应的界面文字。
 const renderStatus=gyro.renderStatus.bind(gyro);gyro.renderStatus=()=>{renderStatus();$('gyroTitle').textContent=`${gyro.linkName}体感滚球`;$('controlHint').textContent='倾斜控制方向';$('gyroGuide').innerHTML=$('gyroGuide').innerHTML.replaceAll('飞行','挑战');};
-$('gyroPanel').querySelector('.gyro-footnote').textContent='设置中位后关闭面板，点击开始或继续挑战。操控轴设置与空战共用。';
-const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setClearColor(0x081c22);renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;
+$('gyroPanel').querySelector('.gyro-footnote').textContent='设置中位后关闭面板，点击开始或继续挑战。选择控制器的前进方向，可调整操控轴。';
+const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setClearColor(0x102e33);renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;
 const scene=new T.Scene(),camera=new T.OrthographicCamera(-8,8,8,-8,.1,100);camera.position.set(0,19,10);camera.lookAt(0,0,0);
 scene.add(new T.HemisphereLight(0xdcf8ed,0x193f48,2.7));const light=new T.DirectionalLight(0xffe2ae,4);light.position.set(-5,16,7);light.castShadow=true;light.shadow.mapSize.set(2048,2048);Object.assign(light.shadow.camera,{left:-10,right:10,top:10,bottom:-10});light.shadow.bias=-.0005;scene.add(light);
 const environment=new T.Scene();environment.background=new T.Color(0x55737a);for(const x of [-5,5]){const panel=new T.Mesh(new T.PlaneGeometry(5,10),new T.MeshBasicMaterial({color:0xeafcff}));panel.position.set(x,7,2);panel.lookAt(0,0,0);environment.add(panel);}const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment);scene.environment=env.texture;pmrem.dispose();
-const board=new T.Group();scene.add(board);let sphere,starMeshes=[],exitRing;
-const mat=(color,metalness=0,roughness=.5)=>new T.MeshStandardMaterial({color,metalness,roughness});
-function mesh(geo,material,x,y,z){const m=new T.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;board.add(m);return m;}
-function ring(x,z,color,r=.34){const m=mesh(new T.TorusGeometry(r,.045,8,40),mat(color,.5,.25),x,.045,z);m.rotation.x=-Math.PI/2;return m;}
+let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
 function loadLevel(i){
  index=i;level=createLevel(i);ball=newBall(level);elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
- const geometries=new Set(),materials=new Set();board.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});board.clear();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());
- const n=level.size,offset=(n-1)/2;board.position.set(-offset,0,-offset);board.rotation.set(0,0,0);
- mesh(new T.BoxGeometry(n+.3,.45,n+.3),mat(0x204750,.35,.34),offset,-.28,offset);
- const wallGeo=new T.BoxGeometry(1,.52,1),wallMat=mat(0x50878b,.3,.32);
- for(let z=0;z<n;z++)for(let x=0;x<n;x++){if(level.grid[z][x])mesh(wallGeo,wallMat,x,.26,z);else{const tile=mesh(new T.PlaneGeometry(.96,.96),mat((x+z)%2?0x244850:0x274c54,.2),x,-.047,z);tile.rotation.x=-Math.PI/2;}}
- ring(1,1,0x82f5d4);exitRing=ring(level.goal.x,level.goal.z,0x657a86,.36);
- for(const h of level.holes){const hole=mesh(new T.CylinderGeometry(.36,.36,.025,40),mat(0x02090e),h.x,-.018,h.z);hole.receiveShadow=false;ring(h.x,h.z,0xd78170,.39);}
- const starShape=new T.Shape();for(let i=0;i<10;i++){const a=i*Math.PI/5+Math.PI/2,r=i%2?.115:.25;const x=Math.cos(a)*r,y=Math.sin(a)*r;if(i===0)starShape.moveTo(x,y);else starShape.lineTo(x,y);}starShape.closePath();const starGeo=new T.ExtrudeGeometry(starShape,{depth:.075,bevelEnabled:true,bevelThickness:.018,bevelSize:.018,bevelSegments:2,steps:1});starGeo.rotateX(-Math.PI/2);starMeshes=level.stars.map(s=>mesh(starGeo,mat(0xffd083,.8,.18),s.x,.28,s.z));
- sphere=mesh(new T.SphereGeometry(RADIUS,32,24),mat(0xd6ecef,.95,.12),ball.x,RADIUS,ball.z);
- $('levelName').textContent=names[i]+' / 收集全部星星后抵达发光圆环';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';
- [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(`gyro-maze-${i}`));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';hud();resize();
+ scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=createMazeModel(level));scene.add(board);
+ $('levelName').textContent=names[i]+' / 收集全部星星后抵达发光圆环';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent='收齐三颗星星，抵达终点。连接体感或用键盘开始。';
+ [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(`gravity-maze-best-${i}`));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';hud();resize();
 }
 function hud(){$('timer').textContent=`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`;$('stars').textContent=`${collected.size} / 3`;$('falls').textContent=falls;}
 function permit(){if(gyro.canFly)return true;$('mazeMessage').textContent=gyro.pauseMessage;$('modalText').textContent=gyro.pauseMessage;if($('gyroPanel').classList.contains('hidden'))$('gyroToggle').click();return false;}
-function start(){if(!permit())return;document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';accumulator=0;$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='挑战进行中';$('mazeMessage').textContent='轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
+function start(){if(!permit())return;document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';accumulator=0;$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent='轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
 function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');}
-function win(){mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(`gyro-maze-${index}`));if(!old||elapsed<old.time)localStorage.setItem(`gyro-maze-${index}`,JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');}
-for(let i=0;i<3;i++){const b=document.createElement('button');b.textContent=['入门','进阶','挑战'][i];b.onclick=()=>loadLevel(i);$('levels').append(b);}
+function win(){mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(`gravity-maze-best-${index}`));if(!old||elapsed<old.time)localStorage.setItem(`gravity-maze-best-${index}`,JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');}
+for(let i=0;i<3;i++){const b=document.createElement('button');b.innerHTML=`<span class=level-number>0${i+1}</span><span><b>${['初识重力','曲径寻星','精密穿行'][i]}</b><small>${['入门 · 9 × 9','进阶 · 11 × 11','挑战 · 13 × 13'][i]}</small></span><span class=level-arrow>↗</span>`;b.onclick=()=>loadLevel(i);$('levels').append(b);}
 $('mazeStart').onclick=()=>{if(mode==='playing')pause();else start();};$('keyboardStart').onclick=()=>{$('controlMode').value='keyboard';$('controlMode').onchange();start();};
 $('mazePause').onclick=()=>mode==='playing'?pause():start();$('continue').onclick=()=>{if(mode==='won')loadLevel((index+1)%3);start();};$('retry').onclick=()=>{loadLevel(index);start();};$('mazeLobby').onclick=()=>loadLevel(index);
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel,button'))return;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat){if(mode==='playing')pause();else if(mode==='paused')start();}return;}if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>pause());document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);touch.x=Number(b.dataset.x);touch.y=Number(b.dataset.y);};b.onpointerup=b.onpointercancel=()=>{touch.x=touch.y=0;};}
-function resize(){const r=$('boardViewport').getBoundingClientRect(),aspect=r.width/Math.max(1,r.height),half=(level?.size||9)*.67;camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}new ResizeObserver(resize).observe($('boardViewport'));
+function resize(){const r=$('boardViewport').getBoundingClientRect(),aspect=r.width/Math.max(1,r.height),half=(level?.size||9)*.57;camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}new ResizeObserver(resize).observe($('boardViewport'));
 let previous=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min(.05,Math.max(0,(now-previous)/1000));previous=now;
  if(mode==='playing'){
   const motion=gyro.sample(dt);
