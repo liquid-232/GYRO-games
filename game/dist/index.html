@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#131512"><title>GYRO · 苍穹突击</title><link rel="stylesheet" href="style.css"></head>
 <body><main id="app"><canvas id="scene" aria-label="3D 海岛空战场景"></canvas><div class="grain" aria-hidden="true"></div><div class="screen-corners" aria-hidden="true"></div>
-<header><a class="brand" href="./"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M3 8h10M3 8v10M37 8H27M37 8v10M3 32h10M3 32V22M37 32H27M37 32V22"/><path class="insignia" d="m20 7 5 13 8 7-11-3-2 9-2-9-11 3 8-7z"/></svg><div>GYRO<small>TACTICAL AIR COMMAND</small></div></a><div class="mission"><span class="live"></span> 作战指挥中心 <b>ARCHIPELAGO / 群岛战区</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">蓝牙体感</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
+<header><a class="brand" href="./"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M3 8h10M3 8v10M37 8H27M37 8v10M3 32h10M3 32V22M37 32H27M37 32V22"/><path class="insignia" d="m20 7 5 13 8 7-11-3-2 9-2-9-11 3 8-7z"/></svg><div>GYRO<small>TACTICAL AIR COMMAND</small></div></a><div class="mission"><span class="live"></span> 作战指挥中心 <b id="missionLocation">ARCHIPELAGO / 群岛战区</b></div><div class="top-actions"><button id="gyroToggle" aria-controls="gyroPanel" aria-expanded="false">蓝牙体感</button><button id="sound" title="开启或关闭音效" aria-label="开启音效">音效 OFF</button><button id="pause" disabled>暂停 <kbd>P</kbd></button></div></header>
 <aside id="gyroPanel" class="gyro-panel hidden" aria-labelledby="gyroTitle">
   <div class="gyro-heading"><div><span class="eyebrow">CONTROL SYSTEM / 02</span><h2 id="gyroTitle">飞行控制系统</h2></div><button id="gyroClose" aria-label="关闭体感设置">×</button></div>
   <label class="gyro-field">操控方式<select id="controlMode"><option value="gyro" selected>MPU6050 蓝牙体感</option><option value="usb">MPU6050 USB 有线体感</option><option value="keyboard">键盘 / 触屏</option></select></label>
@@ -28,16 +28,17 @@
   <p class="gyro-footnote">使用 Chrome 或 Edge。命令往返时间不等于动作到画面的总延迟。设置完成后关闭面板，点击开始或继续飞行。</p>
 </aside>
 <section id="hud" aria-label="飞行仪表"><div class="stat"><label>SCORE / 作战得分</label><strong id="score">000000</strong></div><div class="stat coin-stat"><label>MORA / 摩拉</label><strong><i>◈</i> <span id="coins">0</span></strong></div><div class="stat"><label>ARMOR / 机体状态</label><div id="health"><i></i><i></i><i></i><i></i><i></i></div></div></section>
-<div class="side-readout"><span>ALT / 高度</span><b id="alt">2400</b><div class="ticks">―<br>─<br>―<br>─<br>―</div><span>METERS</span></div>
+<div class="side-readout"><span id="heightLabel">ALT / 高度</span><b id="alt">2400</b><div class="ticks">―<br>─<br>―<br>─<br>―</div><span id="heightUnit">METERS</span></div>
 <div class="right-readout"><span>SECTOR / 战区</span><b id="sector">01</b><span id="speed">720 KM/H</span></div>
 <div id="notice" role="status" aria-live="polite"></div><div id="hitflash"></div><div id="reticle" aria-hidden="true"><svg viewBox="0 0 80 52"><path d="M7 21v-9h16M73 21v-9H57M7 31v9h16M73 31v9H57M32 26h6m4 0h6M40 18v5m0 6v5"/></svg></div>
 <div class="flight-strip" aria-label="任务进度"><span><i></i> LIVE OPERATION</span><b id="missionClock">00:00</b><span>航程 <strong id="missionDistance">0.00 KM</strong></span><span>击毁 <strong id="missionKills">00</strong></span></div>
-<section class="tactical-radar" aria-label="前方航道雷达"><div class="radar-heading"><span>航道监视</span><b>FWD / 140</b></div><canvas id="tacticalRadar" width="440" height="280" aria-label="前方敌机、礁柱与补给位置"></canvas><div class="radar-key"><span class="hostile-key">敌机</span><span class="obstacle-key">礁柱</span><span class="supply-key">补给</span></div></section>
+<section class="tactical-radar" aria-label="前方航道雷达"><div class="radar-heading"><span>航道监视</span><b>FWD / 140</b></div><canvas id="tacticalRadar" width="440" height="280" aria-label="前方敌机、礁柱与补给位置"></canvas><div class="radar-key"><span class="hostile-key">敌机</span><span id="radarObstacleLabel" class="obstacle-key">礁柱</span><span class="supply-key">补给</span></div></section>
 <section id="overlay" class="overlay">
   <div class="intro">
-    <div class="eyebrow"><span class="tag">任务简报</span> OPERATION 01 / 群岛</div>
+    <div class="eyebrow"><span class="tag">任务简报</span> <span id="operationLabel">OPERATION 01 / 群岛</span></div>
     <div class="title-kicker" data-text="SKYSTRIKE" aria-hidden="true">SKYSTRIKE</div><h1 class="combat-title" aria-label="苍穹突击"><span class="title-steel" aria-hidden="true" data-text="苍穹">苍穹</span><span class="title-ember" aria-hidden="true" data-text="突击">突击</span></h1>
-    <div class="mission-rule"><span>海岛空域 / 空中拦截</span><b>01—AO</b></div>
+    <div class="mission-rule"><span id="missionType">海岛空域 / 空中拦截</span><b id="areaCode">01—AO</b></div>
+    <div class="map-select" role="group" aria-label="选择战场"><button id="mapIsland" class="map-option" aria-pressed="false"><span class="map-symbol island-symbol" aria-hidden="true"></span><span><small>01 / MARITIME</small>群岛战区</span></button><button id="mapSpace" class="map-option" aria-pressed="true"><span class="map-symbol orbit-symbol" aria-hidden="true"></span><span><small>02 / ORBITAL</small>轨道禁区</span></button></div>
     <p id="introText">低空突入群岛，突破敌方封锁。<br>沿航线收集补给，规避礁柱，清除空中威胁。</p>
     <div class="features"><span><b>01</b> 收集摩拉</span><span><b>02</b> 规避障碍</span><span><b>03</b> 击毁目标</span></div>
     <button id="start" class="primary" disabled>正在装载战机 <span>↗</span></button>
@@ -45,10 +46,10 @@
     <p class="best">最佳战绩 <b id="best">000000</b><span>PERSONAL RECORD</span></p>
   </div>
   <div class="aircraft-label"><div class="loadout-heading"><span>现役载具 / 01</span><b>已部署</b></div><h2>F-22 <em>RAPTOR</em></h2><p>空优战机 · 双发 · 金属机身</p><svg class="aircraft-diagram" viewBox="0 0 280 85" aria-hidden="true"><path class="diagram-grid" d="M0 42h280M140 0v85M20 10h240v65H20zM70 10v65M210 10v65"/><path d="m140 4 8 27 67 29-3 7-60-10 12 19-4 4-20-10-20 10-4-4 12-19-60 10-3-7 67-29zM140 12v55M132 31l8 10 8-10M128 57l4 12m20-12-4 12"/></svg><div class="loadout-foot"><span>FIGHTER / 单座</span><span>武器系统就绪</span></div></div>
-  <div class="theater-label"><span class="crosshair-icon">⌖</span><div>群岛战区<small>MARITIME INTERDICTION</small></div><b>AO / 01</b></div>
+  <div class="theater-label"><span class="crosshair-icon">⌖</span><div><span id="theaterName">群岛战区</span><small id="theaterEnglish">MARITIME INTERDICTION</small></div><b id="theaterCode">AO / 01</b></div>
 </section>
 <section id="pauseOverlay" class="modal hidden"><div><span class="eyebrow">TACTICAL PAUSE / 任务暂停</span><h2>飞行已暂停</h2><p id="pauseReason">准备好后继续任务。</p><button id="resume" class="primary">继续飞行 ↗</button><button id="returnLobby" class="lobby-button">返回大厅</button></div></section>
-<section id="endOverlay" class="modal hidden"><div><span class="eyebrow">AFTER ACTION / 作战报告</span><h2>任务结束</h2><div id="report"></div><button id="restart" class="primary">再次出击 ↗</button></div></section>
+<section id="endOverlay" class="modal hidden"><div><span class="eyebrow">AFTER ACTION / 作战报告</span><h2>任务结束</h2><div id="report"></div><button id="restart" class="primary">再次出击 ↗</button><button id="endLobby" class="lobby-button">返回大厅 / 切换战场</button></div></section>
 <footer><div class="controls"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd> 移动</span><span><kbd>SPACE</kbd> 开火</span><span><kbd>F</kbd> 切换模式</span></div><button id="fireMode" aria-pressed="true">自动开火 <span>ON</span></button><span id="controlHint" class="footer-id">蓝牙倾斜移动 · 空格开火 · P 暂停</span></footer>
 <div id="touch"><div id="stick" aria-label="拖动控制飞机"><div id="thumb"></div></div><button id="touchFire" aria-label="按住开火">FIRE</button></div>
 <div id="loadError" class="hidden" role="alert"></div></main><script type="module" src="lifecycle.js"></script><script type="module" src="game.js"></script></body></html>

@@ -20,7 +20,8 @@ export function updateTacticalHUD({mode,player,objects,elapsed,distance,kills},n
     if(ahead<0||ahead>140||Math.abs(side)>20)continue;
     const x=px+side*(w-32)/40,y=py-ahead*(h-38)/140;
     if(object.type==='enemy'){ctx.strokeStyle='#f48769';ctx.fillStyle='#f4876940';ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+6,y);ctx.lineTo(x,y+7);ctx.lineTo(x-6,y);ctx.closePath();ctx.fill();ctx.stroke();}
-    else if(object.type==='rock'){ctx.fillStyle='#caba8d';ctx.fillRect(x-4,y-4,8,8);}
+    else if(object.type==='gate'){ctx.strokeStyle='#89d7ef';ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.stroke();}
+    else if(object.type==='rock'||object.type==='asteroid'){ctx.fillStyle='#caba8d';ctx.fillRect(x-4,y-4,8,8);}
     else {ctx.fillStyle='#bfd99d';ctx.beginPath();ctx.arc(x,y,2.4,0,Math.PI*2);ctx.fill();}
   }
   ctx.fillStyle='#edf3dc';ctx.beginPath();ctx.moveTo(px,py-8);ctx.lineTo(px+7,py+6);ctx.lineTo(px,py+3);ctx.lineTo(px-7,py+6);ctx.closePath();ctx.fill();
