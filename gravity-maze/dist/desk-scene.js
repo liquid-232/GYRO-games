@@ -5,10 +5,32 @@ import { mergeStatic } from './static-geometry.js';
 // 木桌与玩具全部由本地几何和 DataTexture 构造，离线和 Node 环境都可创建。
 // 球体独立旋转；这组背景保持世界坐标不动，桌面顶部为 -6.1。
 const TABLE_Y=-6.1;
-function grainTexture(){
- const width=2048,height=1024,data=new Uint8Array(width*height*4);
+// 接触暗部直接烘进台面颜色，避免透明贴片与桌面、透明球壳相互排序。
+// 阴影只沿物体底边向外衰减，动态窗光仍负责方向和投影。
+function deskContactPatches(){
+ const patches=[];
+ const patch=(x,z,hx,hz,opacity=.23,soft=.16,angle=0,ellipse=false)=>{
+  const c=Math.cos(angle),s=Math.sin(angle);
+  patches.push({x,z,hx,hz,opacity,soft,c,s,ellipse,extentX:(hx+soft)*Math.abs(c)+(hz+soft)*Math.abs(s),extentZ:(hx+soft)*Math.abs(s)+(hz+soft)*Math.abs(c)});
+ };
+ patch(0,0,1.49,1.49,.28,.22,0,true);
+ for(const [x,z,a] of [[-9,1.9,-.22],[-10.7,2.2,.19],[-10.3,.5,-.12],[8.4,-7.1,.3]])patch(x,z,.65,.65,.25,.16,a);
+ patch(-8.3,-7.8,1.47,1.47,.25,.18,0,true);
+ // 小车底盘保留很浅的遮蔽，四个轮胎落点各有较紧的接触暗部。
+ patch(9.1,-.6,1.32,.62,.11,.26,-.38);
+ const carAngle=-.38,c=Math.cos(carAngle),s=Math.sin(carAngle);
+ for(const x of [-.92,.92])for(const z of [-.73,.73])patch(9.1+c*x+s*z,-.6-s*x+c*z,.29,.12,.31,.13,carAngle,true);
+ for(const [x,z,a,length] of [[8.3,6.2,.4,2.7],[8.5,6.9,-.35,2.9],[9.9,5.3,.8,2.3],[-8.7,6.4,.55,2.6],[5.4,-8.1,-.7,2.1]])patch(x,z,length*.48,.065,.19,.10,a);
+ patch(2.8,-9.2,2.99,2.19,.14,.10,.10);
+ patch(-7,6.8,.28,.28,.24,.24,0,true);
+ return patches;
+}
+function grainTextures(){
+ const width=2048,height=1024,data=new Uint8Array(width*height*4),roughData=new Uint8Array(width*height*4),patches=deskContactPatches();
  const knots=[{x:.18,y:.23,r:.045},{x:.77,y:.67,r:.038},{x:.52,y:.90,r:.032}];
- for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+ for(let y=0;y<height;y++){
+  const worldZ=y/height*32-16,rowPatches=patches.filter(p=>Math.abs(worldZ-p.z)<p.extentZ);
+  for(let x=0;x<width;x++){
   const u=x/width,v=y/height,plank=Math.floor(v*7),pv=(v*7)%1;
   let warp=7*Math.sin(u*8+plank*1.7)+2.4*Math.sin(u*31+plank),knotShade=0;
   for(const k of knots){const dx=(u-k.x)*.6,dy=v-k.y,d=Math.sqrt(dx*dx+dy*dy);if(d<k.r*2.5){const fall=Math.exp(-d*d/(k.r*k.r));warp+=25*fall*Math.atan2(dy,dx);knotShade+=(Math.sin(d*970)*5-15)*fall;}}
@@ -17,9 +39,22 @@ function grainTexture(){
   const hash=((Math.imul(x+13,374761393)^Math.imul(y+41,668265263))>>>0)%101/100;
   const seam=Math.min(pv,1-pv)<.007?-23:Math.min(pv,1-pv)<.013?-8:0;
   const tint=Math.sin(plank*4.17)*5,n=fine+flow+knotShade+seam+tint+(hash-.5)*2.5;
-  const i=(y*width+x)*4;data[i]=Math.max(0,Math.min(255,191+n));data[i+1]=Math.max(0,Math.min(255,143+n*.86));data[i+2]=Math.max(0,Math.min(255,94+n*.66));data[i+3]=255;
+  let visibility=1;const worldX=u*40-20;
+  for(const p of rowPatches){
+   const dx=worldX-p.x,dz=worldZ-p.z;if(Math.abs(dx)>p.extentX)continue;
+   const px=dx*p.c-dz*p.s,pz=dx*p.s+dz*p.c;
+   const distance=p.ellipse?(Math.hypot(px/p.hx,pz/p.hz)-1)*Math.min(p.hx,p.hz):Math.hypot(Math.max(Math.abs(px)-p.hx,0),Math.max(Math.abs(pz)-p.hz,0));
+   const edge=Math.max(0,Math.min(1,1-Math.max(0,distance)/p.soft));
+   visibility*=1-p.opacity*edge*edge*(3-2*edge);
+  }
+  const i=(y*width+x)*4;data[i]=Math.max(0,Math.min(255,(191+n)*visibility));data[i+1]=Math.max(0,Math.min(255,(143+n*.86)*visibility));data[i+2]=Math.max(0,Math.min(255,(94+n*.66)*visibility));data[i+3]=255;
+  // 粗糙度独立于颜色阴影；浅木纹微起伏与清漆反光不会被暗部误做成凹坑。
+  const rough=Math.max(0,Math.min(255,204+fine*1.15+flow*.38+(hash-.5)*8-seam*.55));
+  roughData[i]=roughData[i+1]=roughData[i+2]=rough;roughData[i+3]=255;
+  }
  }
- const tex=new T.DataTexture(data,width,height);tex.colorSpace=T.SRGBColorSpace;tex.wrapS=tex.wrapT=T.RepeatWrapping;tex.magFilter=T.LinearFilter;tex.minFilter=T.LinearMipmapLinearFilter;tex.generateMipmaps=true;tex.anisotropy=16;tex.needsUpdate=true;return tex;
+ const make=(pixels,color=false)=>{const tex=new T.DataTexture(pixels,width,height);if(color)tex.colorSpace=T.SRGBColorSpace;tex.wrapS=tex.wrapT=T.RepeatWrapping;tex.magFilter=T.LinearFilter;tex.minFilter=T.LinearMipmapLinearFilter;tex.generateMipmaps=true;tex.anisotropy=16;tex.needsUpdate=true;return tex;};
+ return {color:make(data,true),roughness:make(roughData)};
 }
 function letterTexture(){
  const chars=['01110100011000111111100011000110001','11110100011000111110100011000111110','01111100001000010000100001000001111','00100011000010000100001000010001110','01110100010000100010001000100011111','11110000010000101110000010000111110'];
@@ -46,14 +81,14 @@ function paperTexture(){
  }
  const tex=new T.DataTexture(data,size,size);tex.colorSpace=T.SRGBColorSpace;tex.magFilter=T.LinearFilter;tex.minFilter=T.LinearMipmapLinearFilter;tex.generateMipmaps=true;tex.anisotropy=16;tex.needsUpdate=true;return tex;
 }
-function paint(color){return new T.MeshPhysicalMaterial({color,roughness:.33,metalness:.01,clearcoat:.42,clearcoatRoughness:.25});}
+function paint(color){return new T.MeshPhysicalMaterial({color,roughness:.3,metalness:0,clearcoat:.56,clearcoatRoughness:.22});}
 export function createDeskScene(){
  const root=new T.Group();root.name='儿童木桌与散放玩具';
- const grain=grainTexture(),m={
-  wood:new T.MeshPhysicalMaterial({color:0xffffff,map:grain,bumpMap:grain,bumpScale:.018,roughness:.47,clearcoat:.18,clearcoatRoughness:.43}),
-  natural:paint(0xcfaa75),red:paint(0xc96552),yellow:paint(0xe7b951),blue:paint(0x6898ab),mint:paint(0x8ba78d),violet:paint(0x77779b),cream:paint(0xeee1bc),
-  rubber:new T.MeshStandardMaterial({color:0x333e40,roughness:.86}),
-  metal:new T.MeshStandardMaterial({color:0xb9bdba,metalness:.82,roughness:.27}),
+ const grain=grainTextures(),m={
+  wood:new T.MeshPhysicalMaterial({color:0xffffff,map:grain.color,bumpMap:grain.roughness,bumpScale:.023,roughnessMap:grain.roughness,roughness:.56,clearcoat:.34,clearcoatRoughness:.30}),
+  natural:new T.MeshPhysicalMaterial({color:0xcfaa75,roughness:.44,clearcoat:.25,clearcoatRoughness:.34}),red:paint(0xc96552),yellow:paint(0xe7b951),blue:paint(0x6898ab),mint:paint(0x8ba78d),violet:paint(0x77779b),cream:paint(0xeee1bc),
+  rubber:new T.MeshStandardMaterial({color:0x293436,roughness:.96}),
+  metal:new T.MeshStandardMaterial({color:0xb9bdba,metalness:.86,roughness:.22}),
   window:new T.MeshPhysicalMaterial({color:0x315260,metalness:.15,roughness:.18,clearcoat:1}),
   print:new T.MeshStandardMaterial({map:letterTexture(),transparent:true,alphaTest:.3,roughness:.6,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}),
   paper:new T.MeshStandardMaterial({map:paperTexture(),roughness:.96,color:0xffffff,side:T.DoubleSide})
@@ -102,7 +137,7 @@ export function createDeskScene(){
  root.updateMatrixWorld(true);const meshes=[];root.traverse(o=>{if(o.isMesh)meshes.push(o);});
  for(const mesh of meshes){mesh.updateWorldMatrix(true,false);const matrix=mesh.matrixWorld.clone();mesh.removeFromParent();mesh.matrixAutoUpdate=false;mesh.matrix.copy(matrix);root.add(mesh);}
  for(const child of [...root.children])if(!child.isMesh)root.remove(child);
- mergeStatic(root);root.userData={tableTopY:TABLE_Y,clearCenterRadius:6.3,woodTextureResolution:[2048,1024],disposeMaps:['map','bumpMap'],description:'暖色木桌、字母积木、木制小车、蜡笔、叠圈、画纸与陀螺'};
+ mergeStatic(root);root.userData={tableTopY:TABLE_Y,clearCenterRadius:6.3,woodTextureResolution:[2048,1024],disposeMaps:['map','bumpMap','roughnessMap'],bakedContactShadows:true,description:'暖色木桌、字母积木、木制小车、蜡笔、叠圈、画纸与陀螺'};
  return root;
 }
 

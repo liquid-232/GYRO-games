@@ -1,3 +1,4 @@
+import {createRoomLighting} from './room-lighting.js';
 import {createRoomScene} from './room-scene.js';
 import {createDeskScene} from './desk-scene.js';
 import {createSphereLevel,stepSphere,spherePoint,surfaceDistance} from './sphere-physics.js';
@@ -28,29 +29,23 @@ renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=.96;
 renderer.transmissionResolutionScale=1;
 const scene=new T.Scene(),flatCamera=new T.OrthographicCamera(-8,8,8,-8,.1,100),toyCamera=new T.PerspectiveCamera(34,1,.1,180);
 let camera=flatCamera;camera.position.set(0,19,10);camera.lookAt(0,0,0);
-// 侧后方窗口日光在桌面与远处家具上投影，室内暖色补光保留球壳和钢珠细节。
-scene.add(new T.HemisphereLight(0xf7f3e9,0x877159,.8));
-const light=new T.DirectionalLight(0xffefd7,2.7);light.position.set(-20,18,-17);light.target.position.set(0,-5,-2);scene.add(light.target);light.castShadow=true;
-const shadowSize=Math.min(4096,renderer.capabilities.maxTextureSize);light.shadow.mapSize.set(shadowSize,shadowSize);
-Object.assign(light.shadow.camera,{left:-29,right:29,top:29,bottom:-29,near:.5,far:105});
-light.shadow.bias=-.00015;light.shadow.normalBias=.018;scene.add(light);
-const rim=new T.DirectionalLight(0xe2eeff,1.25);rim.position.set(8,4,-8);scene.add(rim);
-const fill=new T.DirectionalLight(0xe5eeff,.55);fill.position.set(0,-5,8);scene.add(fill);
+// 分离环境亮度与窗边主光，让背景保留深浅层次。
+const lighting=createRoomLighting(renderer);scene.add(lighting.group);
 // 窗口与室内补光倒影，呼应木桌上的自然日光。
-const environment=new T.Scene();environment.background=new T.Color(0x766957);
+const environment=new T.Scene();environment.background=new T.Color(0x474b50);
 for(const [position,width,height,color,intensity] of [
- [[-8,10,9],7,9,0xfff4de,2],[[9,8,2],4,8,0xe8f4ff,1.2],
- [[0,11,-4],5,4,0xffffff,.9],[[2,1,-10],4,8,0xffeed7,.55]
+ [[-13,6,-20],8,10,0xffe8ba,2.8],[[9,8,2],4,8,0xcce2ff,.8],
+ [[-8,10,9],5,8,0xf0f4ff,1.1],[[0,11,-4],5,4,0xe2ecff,.55],[[2,1,-10],4,8,0xffdba5,.3]
 ]){
  const panel=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({color:new T.Color(color).multiplyScalar(intensity)}));
  panel.position.set(...position);panel.lookAt(0,0,0);environment.add(panel);
 }
 const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment,0,.1,100,{size:512});
-scene.environment=env.texture;scene.environmentIntensity=.7;pmrem.dispose();
+scene.environment=env.texture;scene.environmentIntensity=.5;pmrem.dispose();
 for(const panel of environment.children){panel.geometry.dispose();panel.material.dispose();}
 const desk=createDeskScene(),room=createRoomScene();scene.add(desk,room);
 const maxAnisotropy=renderer.capabilities.getMaxAnisotropy();
-for(const backdrop of [desk,room])backdrop.traverse(o=>{for(const key of ['map','bumpMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
+for(const backdrop of [desk,room])backdrop.traverse(o=>{for(const key of ['map','bumpMap','roughnessMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
 let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
 const deskCamera=new T.Vector3(8,10,24),deskFocus=new T.Vector3(0,-.35,0);
 const fixedNormal=deskCamera.clone().sub(deskFocus).normalize(),fixedNorth=new T.Vector3(0,1,0).addScaledVector(fixedNormal,-fixedNormal.y).normalize();
@@ -65,7 +60,7 @@ function orientToy(dt=0){
 }
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
- scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=room.visible=isOrb();camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
+ scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=room.visible=isOrb();lighting.setRoomMode(isOrb());scene.environmentIntensity=isOrb()?.5:.7;camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
  $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'球体随路线转动 · 星星存档 · 窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
  [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){camera.position.copy(deskCamera);camera.lookAt(deskFocus);orientToy();}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
@@ -144,4 +139,4 @@ let previous=performance.now();function frame(now){requestAnimationFrame(frame);
 }
 buildLevels();loadLevel(0);requestAnimationFrame(frame);
 // 浏览器缓存整页时保留 WebGL 资源，返回页面后继续显示房间。
-window.addEventListener('pagehide',event=>{if(event.persisted)return;disposeMazeModel(board);disposeMazeModel(desk);disposeMazeModel(room);renderer.dispose();env.dispose();});
+window.addEventListener('pagehide',event=>{if(event.persisted)return;disposeMazeModel(board);disposeMazeModel(desk);disposeMazeModel(room);lighting.dispose();renderer.dispose();env.dispose();});

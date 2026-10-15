@@ -5,37 +5,96 @@ import { mergeStatic } from './static-geometry.js';
 // 儿童房使用真实厚度的墙体、窗框与家具。所有坐标与木桌共享世界坐标：
 // 地面 y=-15，桌面 y=-6.1，背墙 z=-29，正面保持开放，供游戏相机观察。
 const FLOOR_Y=-15;
+// 本地生成的微表面贴图保持轻微起伏；不引入图片下载或屏幕模糊。
+// 细纹随纹理的 mipmap 缩小，远处墙面和织物不会出现闪烁的粗颗粒。
 function surfaceTexture(kind){
- const size=kind==='wood'?512:128,data=new Uint8Array(size*size*4);
+ const size=512,data=new Uint8Array(size*size*4);
  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
   const noise=((Math.imul(x+31,374761393)^Math.imul(y+17,668265263))>>>0)%101/100-.5;
-  const grain=kind==='wood'?Math.sin(y*.27+Math.sin(x*.012)*2)*7+Math.sin(y*.075+x*.004)*9:noise*8;
-  const n=Math.round(210+grain+noise*3),i=(y*size+x)*4;
-  data[i]=data[i+1]=data[i+2]=n;data[i+3]=255;
+  let n;
+  if(kind==='wood'||kind==='woodRough'){
+   const bend=Math.sin(x*.017)*1.7+Math.sin(x*.037+y*.006)*.7;
+   const lines=Math.sin(y*.19+bend)*.55+Math.sin(y*.063+bend*.35)*.30+Math.sin(y*.71+bend*1.5)*.15;
+   n=kind==='wood'?231+lines*13+noise*2:211+lines*17+noise*2;
+  }else if(kind==='weave'){
+   const warp=Math.sin(x*Math.PI/4),weft=Math.sin(y*Math.PI/4);
+   n=197+warp*8+weft*7+warp*weft*6+noise*2;
+  }else{
+   const cloud=Math.sin(x*.045+Math.sin(y*.024))*Math.sin(y*.051)*2;
+   n=215+noise*8+cloud;
+  }
+  const i=(y*size+x)*4;data[i]=data[i+1]=data[i+2]=Math.round(n);data[i+3]=255;
  }
- const tex=new T.DataTexture(data,size,size);tex.wrapS=tex.wrapT=T.RepeatWrapping;tex.magFilter=T.LinearFilter;tex.minFilter=T.LinearMipmapLinearFilter;tex.generateMipmaps=true;tex.anisotropy=16;tex.needsUpdate=true;return tex;
+ const tex=new T.DataTexture(data,size,size);tex.wrapS=tex.wrapT=T.RepeatWrapping;
+ tex.magFilter=T.LinearFilter;tex.minFilter=T.LinearMipmapLinearFilter;tex.generateMipmaps=true;
+ tex.anisotropy=16;tex.repeat.set(kind==='plaster'?4:kind==='weave'?3:1,kind==='plaster'?3:kind==='weave'?3:1);tex.needsUpdate=true;return tex;
+}
+// 建筑与家具的局部遮蔽只降低间接反射，保留窗光照到表面的亮度。
+// 使用合并后的世界坐标，因此不增加透明遮罩的绘制次数和排序伪影。
+function localOcclusion(material,architecture=false){
+ material.onBeforeCompile=shader=>{
+  shader.vertexShader=shader.vertexShader.replace('#include <common>',
+   '#include <common>\nvarying vec3 vRoomSurface;\nvarying vec3 vRoomSurfaceNormal;');
+  shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',
+   '#include <begin_vertex>\nvRoomSurface=(modelMatrix*vec4(transformed,1.0)).xyz;\nvRoomSurfaceNormal=normalize(mat3(modelMatrix)*objectNormal);');
+  shader.fragmentShader=shader.fragmentShader.replace('#include <common>',
+   '#include <common>\nvarying vec3 vRoomSurface;\nvarying vec3 vRoomSurfaceNormal;');
+  shader.fragmentShader=shader.fragmentShader.replace('#include <aomap_fragment>', `
+   #include <aomap_fragment>
+   vec3 roomP=vRoomSurface;
+   vec3 roomN=abs(normalize(vRoomSurfaceNormal));
+   float roomAO=1.0;
+   ${architecture?`
+   float roomCorner=max(roomN.z*exp(-abs(abs(roomP.x)-27.65)*1.35),roomN.x*exp(-abs(roomP.z+28.65)*1.35));
+   float roomSkirting=exp(-abs(roomP.y+14.3)*2.4);
+   float roomDado=exp(-abs(roomP.y+6.05)*6.0);
+   roomAO-=0.16*roomCorner+0.10*roomSkirting+0.055*roomDado;
+   // 挂画边框后方柔和的近距离遮蔽，不改变画作自身的颜色。
+   float frameA=length(max(abs(roomP.xy-vec2(3.0,1.5))-vec2(2.75,3.4),0.0));
+   float frameB=length(max(abs(roomP.xy-vec2(10.5,3.1))-vec2(2.5,2.7),0.0));
+   roomAO-=roomN.z*0.14*(1.0-smoothstep(0.01,0.44,min(frameA,frameB)));
+   `:`
+   // 开放书架背板及层板根部，避免环境光将深处填成同样亮度。
+   float shelfRegion=(1.0-smoothstep(3.25,3.55,abs(roomP.x+21.6)))*(1.0-smoothstep(6.0,6.3,abs(roomP.y+8.5)));
+   float shelfDepth=exp(-abs(roomP.z+26.25)*1.2);
+   roomAO-=0.17*shelfRegion*shelfDepth;
+   roomAO-=0.075*exp(-abs(roomP.y+14.9)*2.0);
+   `}
+   roomAO=clamp(roomAO,0.72,1.0);
+   reflectedLight.indirectDiffuse*=roomAO;
+   reflectedLight.indirectSpecular*=mix(1.0,roomAO,0.5);
+   #ifdef USE_CLEARCOAT
+    clearcoatSpecularIndirect*=mix(1.0,roomAO,0.5);
+   #endif
+  `);
+ };
+ material.customProgramCacheKey=()=>architecture?'room-architecture-contact-v1':'room-furniture-contact-v1';
+ return material;
 }
 export function createRoomScene(){
  const root=new T.Group();root.name='木桌背后的儿童房';
- const plaster=surfaceTexture('plaster'),woodTexture=surfaceTexture('wood');
- const matte=(color,roughness=.83)=>new T.MeshStandardMaterial({color,roughness,bumpMap:plaster,bumpScale:.018});
- const painted=(color)=>new T.MeshPhysicalMaterial({color,roughness:.46,clearcoat:.22,clearcoatRoughness:.4});
+ const plaster=surfaceTexture('plaster'),woodTexture=surfaceTexture('wood'),woodRoughness=surfaceTexture('woodRough'),weave=surfaceTexture('weave');
+ const matte=(color,roughness=.94)=>new T.MeshStandardMaterial({color,roughness,roughnessMap:plaster,bumpMap:plaster,bumpScale:.010});
+ const painted=(color)=>new T.MeshPhysicalMaterial({color,roughness:.54,roughnessMap:plaster,bumpMap:plaster,bumpScale:.003,clearcoat:.16,clearcoatRoughness:.38});
  const m={
   wall:matte(0xf0e4ce),side:matte(0xd1ded6),panel:painted(0x9fb9ac),trim:painted(0xf6ebd7),
-  floor:new T.MeshStandardMaterial({color:0xc6a784,roughness:.72,map:woodTexture,bumpMap:woodTexture,bumpScale:.025}),
-  wood:new T.MeshPhysicalMaterial({color:0xc9a273,roughness:.48,map:woodTexture,bumpMap:woodTexture,bumpScale:.018,clearcoat:.14}),
-  woodDark:new T.MeshStandardMaterial({color:0x8f7053,roughness:.7,map:woodTexture}),
+  floor:new T.MeshStandardMaterial({color:0xc6a784,roughness:.78,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.015}),
+  wood:new T.MeshPhysicalMaterial({color:0xc9a273,roughness:.55,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.012,clearcoat:.20,clearcoatRoughness:.32}),
+  woodDark:new T.MeshStandardMaterial({color:0x8f7053,roughness:.81,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.012}),
   blue:painted(0x81a9b8),sage:painted(0x9bb999),rose:painted(0xd59583),gold:painted(0xd7b66b),
   purple:painted(0x9290b1),paper:matte(0xede6ce),ink:matte(0x526b70),
-  cloth:new T.MeshStandardMaterial({color:0xb4c4d6,roughness:.98,bumpMap:plaster,bumpScale:.035}),
-  linen:new T.MeshStandardMaterial({color:0xe8d9b9,roughness:1,bumpMap:plaster,bumpScale:.045}),
-  rug:new T.MeshStandardMaterial({color:0xccac96,roughness:1,bumpMap:plaster,bumpScale:.055}),
+  cloth:new T.MeshStandardMaterial({color:0xb4c4d6,roughness:1,roughnessMap:weave,bumpMap:weave,bumpScale:.025}),
+  linen:new T.MeshStandardMaterial({color:0xe8d9b9,roughness:1,roughnessMap:weave,bumpMap:weave,bumpScale:.010}),
+  rug:new T.MeshStandardMaterial({color:0xccac96,roughness:1,roughnessMap:weave,bumpMap:weave,bumpScale:.045}),
   metal:new T.MeshStandardMaterial({color:0xb89c65,metalness:.66,roughness:.38}),
   sky:new T.MeshBasicMaterial({color:0xc3dfe5}),cloud:new T.MeshBasicMaterial({color:0xf7f4e4}),
   distant:new T.MeshBasicMaterial({color:0xa1beb2}),foliage:new T.MeshBasicMaterial({color:0x729b87}),
   sun:new T.MeshBasicMaterial({color:0xf3da9d}),
   shade:new T.MeshStandardMaterial({color:0xf1dfb2,roughness:.85,emissive:0xd4ad66,emissiveIntensity:.13,side:T.DoubleSide})
  };
+ // 墙角和书架分别使用更轻的环境遮蔽，避免与真实灯光阴影叠成死黑。
+ for(const key of ['wall','side','panel','trim'])localOcclusion(m[key],true);
+ for(const key of ['floor','wood','woodDark','blue','sage','rose','gold','purple','cloth','linen','rug'])localOcclusion(m[key]);
  const cache=new Map();
  const geo=(key,build)=>{if(!cache.has(key))cache.set(key,build());return cache.get(key);};
  const mesh=(geometry,material,pos=[0,0,0],rot=[0,0,0],scale=[1,1,1])=>{const o=new T.Mesh(geometry,material);o.position.set(...pos);o.rotation.set(...rot);o.scale.set(...scale);o.castShadow=true;o.receiveShadow=true;root.add(o);return o;};
@@ -83,9 +142,10 @@ export function createRoomScene(){
  box(14.1,.32,1.2,.08,m.wood,[wx,wy-5.9,-27.75]);
  // 两侧软布窗帘由起伏的实体布褶组成，窗户仍留出大面积室外视野。
  rod(.11,15.8,m.metal,[wx,wy+6.35,-27.63],[0,0,Math.PI/2]);
- for(const side of [-1,1])for(let f=0;f<5;f++){
-  const x=wx+side*(6.1+f*.32),g=new T.PlaneGeometry(.45,11.8,4,28),p=g.attributes.position;
-  for(let i=0;i<p.count;i++){const y=p.getY(i);p.setZ(i,.15*Math.cos((p.getX(i)/.45+.5)*Math.PI*2)+.10*Math.sin(y*.28));}
+ // 每侧使用连续细分布面，五道布褶不会彼此重叠而形成自阴影斑点。
+ for(const side of [-1,1]){
+  const width=1.73,x=wx+side*6.74,g=new T.PlaneGeometry(width,11.8,80,40),p=g.attributes.position;
+  for(let i=0;i<p.count;i++){const y=p.getY(i),u=(p.getX(i)+width/2)/width;p.setZ(i,.15*Math.cos(u*Math.PI*10)+.10*Math.sin(y*.28));}
   g.computeVertexNormals();const curtain=mesh(g,m.linen,[x,wy+.1,-27.48]);curtain.material.side=T.DoubleSide;
  }
  // 左后开放书架：厚侧板、层板、背板、立放书与收纳盒有明确前后遮挡。
@@ -155,6 +215,6 @@ export function createRoomScene(){
  }
  // 静态合并保留每个材质的一次绘制；不向房间里嵌入额外相机或后处理。
  mergeStatic(root);
- root.userData={floorY:FLOOR_Y,backWallZ:-29,sideWallX:28,windowCenter:[wx,wy,-28],bounds:{width:56,depth:58,height:33},description:'窗边儿童房：厚窗框、布帘、木地板、书架、矮柜、儿童床、地毯与落地灯'};
+ root.userData={floorY:FLOOR_Y,backWallZ:-29,sideWallX:28,windowCenter:[wx,wy,-28],bounds:{width:56,depth:58,height:33},description:'窗边儿童房：微纹理灰泥、棉麻布帘、木纹家具、柔和墙角与书架遮蔽、儿童床及地毯'};
  return root;
 }
