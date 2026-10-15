@@ -3,7 +3,7 @@ import {createFullscreenControls} from './fullscreen-ui.js';
 import {createRoomLighting} from './room-lighting.js';
 import {createRoomScene} from './room-scene.js';
 import {createDeskScene} from './desk-scene.js';
-import {createSphereLevel,stepSphere,spherePoint,surfaceDistance} from './sphere-physics.js';
+import {createSphereLevel,stepSphere,spherePoint,sphereBallPoint,surface,surfaceDistance} from './sphere-physics.js';
 import {createSphereModel} from './sphere-model.js';
 import * as T from './vendor/three.module.js';
 import {GyroController} from './gyro.js';
@@ -11,14 +11,14 @@ import {createMazeModel,disposeMazeModel} from './maze-model.js';
 import {createLevel,newBall,stepBall,RADIUS} from './maze-physics.js';
 const $=id=>document.getElementById(id),keys=new Set(),touch={x:0,y:0};
 let family='sphere',checkpoint=null,mode='menu',index=0,level,ball,elapsed=0,falls=0,collected=new Set(),accumulator=0,fallTime=0,poseView,poseLoad;
-const names=['01 / 初识重力','02 / 曲径寻星','03 / 精密穿行'],orbNames=['01 / 环绕初航','02 / 起伏回廊','03 / 极限窄桥'];
+const names=['01 / 初识重力','02 / 曲径寻星','03 / 精密穿行'],orbNames=['01 / 浅层初航','02 / 下潜回廊','03 / 深核穿行'];
 const isOrb=()=>level?.kind==='sphere';
 let closeView=false;
 let renderQuality='auto';try{const saved=localStorage.getItem('gravity-maze-quality');if(['auto','balanced','ultra'].includes(saved))renderQuality=saved;}catch{}
 const renderBudget=createRenderBudget(renderQuality);
 let frameId=0,idleTimer=0,renderDirty=true,disposed=false,previous=performance.now(),lastRender=-Infinity,lastPresented=-Infinity,lastHud=-Infinity;
 let canvasWidth=0,canvasHeight=0,canvasRatio=0;
-const recordKey=()=>`gravity-maze-best-${family==='sphere'?'sphere-v1-':''}${index}`;
+const recordKey=()=>`gravity-maze-best-${family==='sphere'?'sphere-v2-':''}${index}`;
 const gyro=new GyroController({onInterrupt:message=>pause(message),onNoseDirection:d=>poseView?.setNoseDirection(d),onPanelVisibility:visible=>{
   if(poseView){poseView.setVisible(visible);return;}if(!visible||poseLoad)return;
   poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{poseView=new GyroPoseView($('gyroModel'),gyro);poseView.setVisible(gyro.selected&&!$('gyroPanel').classList.contains('hidden'));}).catch(()=>{$('gyroModelState').textContent='姿态预览不可用';poseLoad=null;});
@@ -68,23 +68,27 @@ function orientToy(dt=0){
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
  scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);starMeshes.forEach(m=>{m.castShadow=false;});const animated=new Set([sphere,exitRing,...starMeshes]);board.traverse(o=>{if(o!==board&&!animated.has(o)){o.updateMatrix();o.matrixAutoUpdate=false;}});desk.visible=room.visible=isOrb();lighting.setRoomMode(isOrb());scene.environmentIntensity=isOrb()?.5:.7;camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
- $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'球体随路线转动 · 星星存档 · 窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
+ $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'蓝色箭头为起点 · 金色棋盘格为终点':'蓝色起点 → 收齐三颗星星 → 金色终点';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'沿橙色外环下潜到青色内层；绕开红色挡柱，星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
  [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){camera.position.copy(deskCamera);camera.lookAt(deskFocus);orientToy();}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
 // 计时文字只显示十分之一秒；相同数值不重复写 DOM。
-const hudNodes={timer:$('timer'),stars:$('stars'),falls:$('falls')},hudValues={};
-function hud(){const values={timer:`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`,stars:`${collected.size} / 3`,falls:String(falls)};for(const key in values)if(hudValues[key]!==values[key]){hudNodes[key].textContent=values[key];hudValues[key]=values[key];}}
+const hudNodes={timer:$('timer'),stars:$('stars'),falls:$('falls'),depth:$('depthIndicator')},hudValues={};
+function hud(){
+ const depth=isOrb()?Math.max(0,Math.min(1,-surface(level,ball.x,ball.z).height/level.depth)):0;
+ const values={timer:`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`,stars:`${collected.size} / 3`,falls:String(falls),depth:isOrb()?`DEPTH ${(depth*100).toFixed(0)}% · ${depth>.65?'内层':depth>.22?'坡道':'外环'}`:'CLASSIC MAZE'};
+ for(const key in values)if(hudValues[key]!==values[key]){hudNodes[key].textContent=values[key];hudValues[key]=values[key];}
+}
 // 暂停、结算和连接设置位于画布外，显示前先退出全屏，确保面板可见。
 function leaveFullscreenForPanel(){
  if(document.fullscreenElement===$('boardViewport'))void fullscreen.exit();
 }
 function permit(){if(gyro.canFly)return true;leaveFullscreenForPanel();$('mazeMessage').textContent=gyro.pauseMessage;$('modalText').textContent=gyro.pauseMessage;if($('gyroPanel').classList.contains('hidden'))$('gyroToggle').click();return false;}
-function start(){if(!permit())return;void fullscreen.enter();document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';starMeshes.forEach(m=>{m.castShadow=true;});lighting.invalidate();accumulator=0;previous=performance.now();renderBudget.suspend(previous);invalidateFrame();$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent=isOrb()?'球面模式：沿通道轻缓倾斜，窄桥上可按空格刹车。':'轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
+function start(){if(!permit())return;void fullscreen.enter();document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';starMeshes.forEach(m=>{m.castShadow=true;});lighting.invalidate();accumulator=0;previous=performance.now();renderBudget.suspend(previous);invalidateFrame();$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent=isOrb()?'深坡会加速，红色挡柱需要绕行；上金色窄桥前可按空格刹车。':'轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
 function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;leaveFullscreenForPanel();mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');hud();invalidateFrame();}
 function win(){leaveFullscreenForPanel();mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(recordKey()));if(!old||elapsed<old.time)localStorage.setItem(recordKey(),JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');hud();invalidateFrame();}
 function buildLevels(){
  $('levels').replaceChildren();
- for(let i=0;i<3;i++){const b=document.createElement('button');b.innerHTML=`<span class=level-number>0${i+1}</span><span><b>${(family==='sphere'?['环绕初航','起伏回廊','极限窄桥']:['初识重力','曲径寻星','精密穿行'])[i]}</b><small>${(family==='sphere'?['入门 · 球面探索','进阶 · 坡道 / 宽桥','专家 · 窄桥 / 惯性']:['入门 · 9 × 9','进阶 · 11 × 11','挑战 · 13 × 13'])[i]}</small></span><span class=level-arrow>↗</span>`;b.onclick=()=>loadLevel(i);$('levels').append(b);}
+ for(let i=0;i<3;i++){const b=document.createElement('button');b.innerHTML=`<span class=level-number>0${i+1}</span><span><b>${(family==='sphere'?['浅层初航','下潜回廊','深核穿行']:['初识重力','曲径寻星','精密穿行'])[i]}</b><small>${(family==='sphere'?['入门 · 缓坡 / 平衡桥','进阶 · 下潜 / 绕行柱','专家 · 深坡 / 窄桥 / 惯性']:['入门 · 9 × 9','进阶 · 11 × 11','挑战 · 13 × 13'])[i]}</small></span><span class=level-arrow>↗</span>`;b.onclick=()=>loadLevel(i);$('levels').append(b);}
 }
 for(const button of document.querySelectorAll('[data-family]'))button.onclick=()=>{family=button.dataset.family;document.querySelectorAll('[data-family]').forEach(b=>b.setAttribute('aria-pressed',b===button));buildLevels();loadLevel(0);};
 $('mazeStart').onclick=()=>{if(mode==='playing')pause();else start();};$('keyboardStart').onclick=()=>{$('controlMode').value='keyboard';$('controlMode').onchange();start();};
@@ -99,7 +103,7 @@ for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.poin
 function resize(){
  const r=$('boardViewport').getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height),aspect=width/height;
  // 球模式使用真实透视：近处玩具更大、远处家具更小，窄屏仍保留完整球壳。
- const half=isOrb()?(closeView?6.4:8.4):(level?.size||9)*.57;
+ const half=isOrb()?(closeView?6.1:8.4):(level?.size||9)*.57;
  if(isOrb()){
   camera.aspect=aspect;
   camera.fov=T.MathUtils.radToDeg(2*Math.atan(half*Math.max(1,1/aspect)/camera.position.distanceTo(deskFocus)));
@@ -133,11 +137,11 @@ function frame(now){
     if(fallTime>0){fallTime-=step;if(!isOrb())sphere.position.y=-.8*(1-fallTime/.45);sphere.scale.setScalar(Math.max(.05,fallTime/.45));if(fallTime<=0){ball={...(isOrb()?checkpoint:level.start),vx:0,vz:0};sphere.scale.setScalar(1);sphere.position.y=RADIUS;accumulator=0;}continue;}
     const oldX=ball.x,oldZ=ball.z;if((isOrb()?stepSphere:stepBall)(ball,level,input,step,keys.has('Space'))){falls++;fallTime=.45;$('mazeMessage').textContent=isOrb()?'掉落，返回最近检查点；已收集的星星保留。':'落入陷阱，返回起点；已收集的星星保留。';continue;}
     sphere.rotation.z-=(ball.x-oldX)/RADIUS;sphere.rotation.x+=(ball.z-oldZ)/RADIUS;
-    level.stars.forEach((s,i)=>{if(!collected.has(i)&&(isOrb()?surfaceDistance(level,ball,s):Math.hypot(ball.x-s.x,ball.z-s.z))<.43){collected.add(i);starMeshes[i].visible=false;if(isOrb()){checkpoint={...s};$('mazeMessage').textContent=`星星 ${collected.size}/3 · 检查点已保存`;}if(collected.size===3){exitRing.material.color.set(0x86f8df);exitRing.material.emissive.set(0x2b8976);$('mazeMessage').textContent='星星已集齐，前往发光终点！';}}});
+    level.stars.forEach((s,i)=>{if(!collected.has(i)&&(isOrb()?surfaceDistance(level,ball,s):Math.hypot(ball.x-s.x,ball.z-s.z))<.43){collected.add(i);exitRing.userData.setProgress(collected.size);starMeshes[i].visible=false;if(isOrb()){checkpoint={...s};$('mazeMessage').textContent=`星星 ${collected.size}/3 · 检查点已保存`;}if(collected.size===3){$('mazeMessage').textContent='星星已集齐，前往金色棋盘格终点！';}}});
     if(collected.size===3&&(isOrb()?surfaceDistance(level,ball,level.goal):Math.hypot(ball.x-level.goal.x,ball.z-level.goal.z))<.32)win();
    }
    if(isOrb()){
-    sphere.position.set(...spherePoint(level,ball.x,ball.z,RADIUS-(fallTime>0?(1-fallTime/.45)*.7:0)));
+    sphere.position.set(...sphereBallPoint(level,ball.x,ball.z,RADIUS-(fallTime>0?(1-fallTime/.45)*.7:0)));
     orientToy(dt);
    }else{
     sphere.position.x=ball.x;sphere.position.z=ball.z;

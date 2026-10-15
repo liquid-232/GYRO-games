@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.js';
 import { roundedBox } from './maze-materials.js';
 import { mergeStatic } from './static-geometry.js';
+import { createRoomSurfaceMaps,createOutdoorMaps,projectWallUV } from './room-materials.js';
 
 // 儿童房使用真实厚度的墙体、窗框与家具。所有坐标与木桌共享世界坐标：
 // 地面 y=-15，桌面 y=-6.1，背墙 z=-29，正面保持开放，供游戏相机观察。
@@ -73,11 +74,13 @@ function localOcclusion(material,architecture=false){
 }
 export function createRoomScene(){
  const root=new T.Group();root.name='木桌背后的儿童房';
+ const wallMaps=createRoomSurfaceMaps(),outdoorMaps=createOutdoorMaps();
  const plaster=surfaceTexture('plaster'),woodTexture=surfaceTexture('wood'),woodRoughness=surfaceTexture('woodRough'),weave=surfaceTexture('weave');
+ const wallMaterial=color=>new T.MeshStandardMaterial({color,map:wallMaps.color,roughness:.96,roughnessMap:wallMaps.roughness,bumpMap:wallMaps.height,bumpScale:.065});
  const matte=(color,roughness=.94)=>new T.MeshStandardMaterial({color,roughness,roughnessMap:plaster,bumpMap:plaster,bumpScale:.010});
  const painted=(color)=>new T.MeshPhysicalMaterial({color,roughness:.54,roughnessMap:plaster,bumpMap:plaster,bumpScale:.003,clearcoat:.16,clearcoatRoughness:.38});
  const m={
-  wall:matte(0xf0e4ce),side:matte(0xd1ded6),panel:painted(0x9fb9ac),trim:painted(0xf6ebd7),
+  wall:wallMaterial(0xf0e4ce),side:wallMaterial(0xd1ded6),panel:painted(0x9fb9ac),trim:painted(0xf6ebd7),
   floor:new T.MeshStandardMaterial({color:0xc6a784,roughness:.78,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.015}),
   wood:new T.MeshPhysicalMaterial({color:0xc9a273,roughness:.55,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.012,clearcoat:.20,clearcoatRoughness:.32}),
   woodDark:new T.MeshStandardMaterial({color:0x8f7053,roughness:.81,map:woodTexture,roughnessMap:woodRoughness,bumpMap:woodTexture,bumpScale:.012}),
@@ -87,9 +90,16 @@ export function createRoomScene(){
   linen:new T.MeshStandardMaterial({color:0xe8d9b9,roughness:1,roughnessMap:weave,bumpMap:weave,bumpScale:.010}),
   rug:new T.MeshStandardMaterial({color:0xccac96,roughness:1,roughnessMap:weave,bumpMap:weave,bumpScale:.045}),
   metal:new T.MeshStandardMaterial({color:0xb89c65,metalness:.66,roughness:.38}),
-  sky:new T.MeshBasicMaterial({color:0xc3dfe5}),cloud:new T.MeshBasicMaterial({color:0xf7f4e4}),
-  distant:new T.MeshBasicMaterial({color:0xa1beb2}),foliage:new T.MeshBasicMaterial({color:0x729b87}),
-  sun:new T.MeshBasicMaterial({color:0xf3da9d}),
+  sky:new T.MeshBasicMaterial({map:outdoorMaps.sky,color:0xffffff,toneMapped:false}),
+  foliage:new T.MeshStandardMaterial({color:0x729b87,roughness:1}),
+  outdoorLeaf:new T.MeshStandardMaterial({color:0xffffff,vertexColors:true,roughness:1,bumpMap:outdoorMaps.leaf,bumpScale:.10}),
+  outdoorBark:new T.MeshStandardMaterial({color:0x796c53,roughness:.96,map:outdoorMaps.bark,bumpMap:outdoorMaps.bark,bumpScale:.09}),
+  outdoorGround:new T.MeshStandardMaterial({color:0x859472,roughness:1,map:outdoorMaps.leaf,bumpMap:outdoorMaps.leaf,bumpScale:.045}),
+  distantWall:new T.MeshStandardMaterial({color:0xd9c9b1,map:wallMaps.color,roughness:1}),
+  roof:new T.MeshStandardMaterial({color:0x8b7666,roughness:.94,bumpMap:outdoorMaps.bark,bumpScale:.035}),
+  windowSeal:new T.MeshStandardMaterial({color:0x59655f,roughness:.87}),
+  outdoorGlass:new T.MeshStandardMaterial({color:0x738c8c,roughness:.36,metalness:.12}),
+  glass:new T.MeshPhysicalMaterial({color:0xc7e2e3,metalness:.04,roughness:.10,transparent:true,opacity:.085,depthWrite:false,clearcoat:1,clearcoatRoughness:.075,envMapIntensity:.60}),
   shade:new T.MeshStandardMaterial({color:0xf1dfb2,roughness:.85,emissive:0xd4ad66,emissiveIntensity:.13,side:T.DoubleSide})
  };
  // 墙角和书架分别使用更轻的环境遮蔽，避免与真实灯光阴影叠成死黑。
@@ -99,12 +109,17 @@ export function createRoomScene(){
  const geo=(key,build)=>{if(!cache.has(key))cache.set(key,build());return cache.get(key);};
  const mesh=(geometry,material,pos=[0,0,0],rot=[0,0,0],scale=[1,1,1])=>{const o=new T.Mesh(geometry,material);o.position.set(...pos);o.rotation.set(...rot);o.scale.set(...scale);o.castShadow=true;o.receiveShadow=true;root.add(o);return o;};
  const box=(w,h,d,r,material,pos,rot=[0,0,0])=>mesh(geo(`b${w},${h},${d},${r}`,()=>roundedBox(w,h,d,r)),material,pos,rot);
- const plain=(w,h,d,material,pos)=>mesh(geo(`p${w},${h},${d}`,()=>new T.BoxGeometry(w,h,d)),material,pos);
+ const plain=(w,h,d,material,pos)=>{const o=mesh(geo(`p${w},${h},${d}`,()=>new T.BoxGeometry(w,h,d)),material,pos);return material===m.wall||material===m.side?projectWallUV(o):o;};
  const ball=(radius,material,pos,scale=[1,1,1])=>mesh(geo(`s${radius}`,()=>new T.SphereGeometry(radius,32,24)),material,pos,[0,0,0],scale);
  const rod=(radius,height,material,pos,rot=[0,0,0],top=radius)=>mesh(geo(`c${radius},${height},${top}`,()=>new T.CylinderGeometry(top,radius,height,32)),material,pos,rot);
  const line=(a,b,radius,material)=>{const av=new T.Vector3(...a),bv=new T.Vector3(...b),d=bv.clone().sub(av),o=rod(radius,d.length(),material,av.add(bv).multiplyScalar(.5).toArray());o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return o;};
  // 墙角、墙板与踢脚线拥有体积；纵向地板缝把视线引向远处的房间。
- plain(56.6,33,.65,m.wall,[0,1.5,-29]);
+ // 背墙四段围成真实开口；室外景物处于墙后，不再贴在墙面前。
+ const wx=-13.5,wy=1.6,windowLeft=wx-6.25,windowRight=wx+6.25,windowBottom=wy-5.25,windowTop=wy+5.25;
+ plain(windowLeft+28.3,33,.65,m.wall,[(-28.3+windowLeft)/2,1.5,-29]);
+ plain(28.3-windowRight,33,.65,m.wall,[(windowRight+28.3)/2,1.5,-29]);
+ plain(12.5,windowBottom+15,.65,m.wall,[wx,(-15+windowBottom)/2,-29]);
+ plain(12.5,18-windowTop,.65,m.wall,[wx,(18+windowTop)/2,-29]);
  plain(.65,33,57,m.side,[-28,1.5,-.5]);plain(.65,33,57,m.wall,[28,1.5,-.5]);
  plain(56,.3,58,m.woodDark,[0,FLOOR_Y-.16,0]);
  for(let ix=0;ix<16;ix++)for(let iz=0;iz<7;iz++){
@@ -121,25 +136,70 @@ export function createRoomScene(){
  for(let z=-26;z<28;z+=3.5){box(.09,7.9,.08,.025,m.trim,[-27.42,-10.1,z]);box(.09,7.9,.08,.025,m.trim,[27.42,-10.1,z]);}
  box(.38,31,.38,.07,m.trim,[-27.47,.5,-28.43]);box(.38,31,.38,.07,m.trim,[27.47,.5,-28.43]);
  box(55.8,.45,.5,.08,m.trim,[0,16.8,-28.38]);
- // 窗景采用清晰不透明的浅蓝背景与有层次的树景，不使用会糊化轨道的屏幕透射。
- const wx=-13.5,wy=1.6;
- plain(13.4,11.5,.10,m.woodDark,[wx,wy,-28.48]);
- const sky=plain(12.5,10.5,.08,m.sky,[wx,wy,-28.38]);sky.castShadow=false;
- const hill=(points,material,z)=>{const s=new T.Shape();s.moveTo(points[0][0],points[0][1]);for(let i=1;i<points.length;i++)s.lineTo(points[i][0],points[i][1]);s.closePath();const o=mesh(new T.ShapeGeometry(s),material,[0,0,z]);o.castShadow=false;return o;};
- hill([[-19.7,-3.6],[-19.7,-1.2],[-17.4,-.2],[-15.1,-.7],[-12.4,.35],[-9.9,-.35],[-7.3,-.8],[-7.3,-3.6]],m.distant,-28.29);
- hill([[-19.7,-3.6],[-19.7,-2.2],[-17.6,-1.8],[-14.7,-2.5],[-11.9,-1.7],[-9.4,-2.2],[-7.3,-1.5],[-7.3,-3.6]],m.foliage,-28.24);
- ball(.66,m.sun,[-9.2,5.0,-28.22],[1,1,.12]);
- for(const [x,y,sx] of [[-16.9,5.0,1.3],[-14.5,3.9,1.0],[-10.5,6.2,.65]]){
-  box(sx*2.1,.38,.04,.10,m.cloud,[x,y,-28.23]);ball(.36,m.cloud,[x-.2,y+.17,-28.21],[1.25,.83,.09]);
+ // 窗外使用真实前后距离：近景枝叶、草地、围栏、屋顶、远树和天空依次后退。
+ // 室外单独使用不投影材质批次，不扩大原有室内阴影图的更新负担。
+ const outside=o=>{o.castShadow=false;o.receiveShadow=false;return o;};
+ outside(mesh(new T.PlaneGeometry(190,100),m.sky,[-37,10,-102]));
+ outside(plain(110,.35,70,m.outdoorGround,[-34,-15.55,-68]));
+ // 一幢只露出局部的远处住宅：瓦檐、墙体和窄窗给树景明确的尺度参照。
+ outside(plain(14,8,9,m.distantWall,[-17,-11.2,-67]));
+ for(const side of [-1,1])outside(box(8.2,.25,10,.06,m.roof,[-17+side*3.4,-6.25,-67],[0,0,-side*.34]));
+ outside(rod(.13,10.3,m.roof,[-17,-4.98,-67],[Math.PI/2,0,0]));
+ outside(plain(1.2,3.0,1.1,m.distantWall,[-13.4,-5.35,-68.6]));
+ for(const x of [-21.2,-16.9,-12.8]){
+  outside(plain(1.75,2.55,.11,m.outdoorGlass,[x,-10.1,-62.43]));
+  outside(plain(.09,2.65,.16,m.distantWall,[x,-10.1,-62.32]));
+  outside(plain(1.85,.10,.16,m.distantWall,[x,-10.1,-62.32]));
  }
- for(const [x,y,size] of [[-18.2,-.9,1.0],[-11.2,-1.5,.8],[-8.2,-1.5,.65]]){
-  plain(.10,2.7,.06,m.woodDark,[x,y-.45,-28.18]);
-  for(let i=0;i<3;i++)ball(size,m.foliage,[x+(i-1)*size*.42,y+.5+(i%2)*size*.5,-28.12],[.75,1.0,.09]);
- }
+ // 近处花园围栏采用实体木桩，可从窗框间看见层层遮挡。
+ for(let x=-43;x<=-10;x+=1.25)outside(box(.48,3.35,.22,.06,m.outdoorBark,[x,-13.8,-45]));
+ for(const y of [-14.7,-12.8])outside(plain(34,.18,.24,m.outdoorBark,[-26.5,y,-45.12]));
+ const treeColor=new T.Color(),haze=new T.Color(0xabc4b7),leafColors=[];
+ const canopy=(position,scale,seed,distance)=>{
+  const g=new T.SphereGeometry(1,18,12),p=g.attributes.position,colors=new Float32Array(p.count*3);
+  for(let i=0;i<p.count;i++){
+   const x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+   const n=Math.sin(x*13.1+y*7.3+seed)*Math.sin(z*11.7-y*9.1+seed*.7);
+   const ripple=1+n*.10+Math.sin(x*5.7+z*7.2+seed)*.075;
+   p.setXYZ(i,x*ripple,y*ripple,z*ripple);
+   // 朝上叶团偏亮，凹部与下侧偏深；远景颜色向天空靠拢，保留自然空气透视。
+   treeColor.setHSL(.255+Math.sin(seed)*.021,.24,.24+(y+1)*.067+n*.025).lerp(haze,distance);
+   colors[i*3]=treeColor.r;colors[i*3+1]=treeColor.g;colors[i*3+2]=treeColor.b;
+  }
+  leafColors.push(colors);g.computeVertexNormals();
+  return outside(mesh(g,m.outdoorLeaf,position,[0,seed*.27,0],scale));
+ };
+ const tree=(x,z,height,width,seed,distance=0)=>{
+  const ground=-15.5,top=ground+height;
+  outside(rod(width*.075,height*.76,m.outdoorBark,[x,ground+height*.38,z],undefined,width*.035));
+  for(let i=0;i<7;i++){
+   const a=i*2.4+seed,r=width*(i===6?.08:.45+.12*Math.sin(i*2.7)),lift=height*(.65+.20*Math.sin(i*1.8+seed));
+   const tip=[x+Math.cos(a)*r,ground+lift,z+Math.sin(a)*r*.72];
+   outside(line([x,ground+height*.38,z],tip,width*.023,m.outdoorBark));
+   canopy(tip,[width*(.44+.07*Math.sin(i)),height*.22,width*.44],seed+i*.73,distance);
+  }
+  canopy([x,top-height*.10,z],[width*.53,height*.22,width*.48],seed+8,distance);
+ };
+ for(const [x,z,h,w,seed] of [[-56,-82,16,6.8,2],[-42,-79,14,7,7],[-31,-84,15,7.5,12],[-62,-72,13,6,17]])tree(x,z,h,w,seed,.44);
+ tree(-36,-57,13.2,5.1,3,.20);tree(-17,-52,11.6,4.5,9,.15);
+ tree(-25.5,-37,10.2,3.4,15,.035);
+ // 窗洞有墙厚、木质内衬、内外压条和暗色密封槽，斜看时窗框仍有体积。
+ for(const x of [windowLeft-.10,windowRight+.10])box(.24,10.8,1.2,.045,m.trim,[x,wy,-28.85]);
+ for(const y of [windowBottom-.10,windowTop+.10])box(12.8,.24,1.2,.045,m.trim,[wx,y,-28.85]);
  for(const x of [wx-6.5,wx+6.5])box(.48,11.8,.62,.065,m.trim,[x,wy,-28.03]);
  for(const y of [wy-5.65,wy+5.65])box(13.5,.48,.62,.065,m.trim,[wx,y,-28.03]);
+ for(const x of [windowLeft+.10,wx,windowRight-.10])box(.085,10.5,.10,.018,m.windowSeal,[x,wy,-28.29]);
+ for(const y of [windowBottom+.08,wy+.5,windowTop-.08])box(12.5,.085,.10,.018,m.windowSeal,[wx,y,-28.29]);
  box(.22,10.8,.31,.04,m.trim,[wx,wy,-27.92]);box(12.65,.20,.31,.035,m.trim,[wx,wy+.5,-27.92]);
- box(14.1,.32,1.2,.08,m.wood,[wx,wy-5.9,-27.75]);
+ // 玻璃仅做轻微环境反光，不启用透射渲染或背景模糊。
+ const glass=mesh(new T.PlaneGeometry(12.28,10.28),m.glass,[wx,wy,-28.39]);glass.castShadow=false;glass.receiveShadow=false;
+ box(14.1,.32,1.55,.08,m.wood,[wx,wy-5.9,-27.62]);
+ box(13.45,.20,.36,.045,m.trim,[wx,wy-6.14,-27.9]);
+ for(const y of [wy-3.0,wy+3.5]){
+  rod(.075,.40,m.metal,[wx-6.25,y,-27.65]);rod(.075,.40,m.metal,[wx+6.25,y,-27.65]);
+ }
+ box(.19,.52,.11,.035,m.metal,[wx+.31,wy-.55,-27.68]);
+ box(.16,.74,.19,.055,m.metal,[wx+.31,wy-.37,-27.52],[0,0,-.16]);
  // 两侧软布窗帘由起伏的实体布褶组成，窗户仍留出大面积室外视野。
  rod(.11,15.8,m.metal,[wx,wy+6.35,-27.63],[0,0,Math.PI/2]);
  // 每侧使用连续细分布面，五道布褶不会彼此重叠而形成自阴影斑点。
@@ -215,6 +275,10 @@ export function createRoomScene(){
  }
  // 静态合并保留每个材质的一次绘制；不向房间里嵌入额外相机或后处理。
  mergeStatic(root);
- root.userData={floorY:FLOOR_Y,backWallZ:-29,sideWallX:28,windowCenter:[wx,wy,-28],bounds:{width:56,depth:58,height:33},description:'窗边儿童房：微纹理灰泥、棉麻布帘、木纹家具、柔和墙角与书架遮蔽、儿童床及地毯'};
+ // 公共合并器只保留位置、法线和 UV。按同一插入顺序补回树冠颜色，
+ // 仍然只用一次树冠绘制，且不需要每帧计算颜色或修改公共几何模块。
+ const foliageBatch=root.children.find(o=>o.material===m.outdoorLeaf);
+ if(foliageBatch){const colors=new Float32Array(leafColors.reduce((n,a)=>n+a.length,0));let offset=0;for(const source of leafColors){colors.set(source,offset);offset+=source.length;}foliageBatch.geometry.setAttribute('color',new T.BufferAttribute(colors,3));}
+ root.userData={floorY:FLOOR_Y,backWallZ:-29,sideWallX:28,windowCenter:[wx,wy,-28],bounds:{width:56,depth:58,height:33},description:'窗边儿童房：世界尺度灰泥纹路、真实窗洞与玻璃反光、枝叶围栏与远处屋顶、分层窗外透视、棉麻窗帘与木纹家具'};
  return root;
 }

@@ -1,3 +1,4 @@
+import {addEndpointMarkers} from './endpoint-markers.js';
 import {mergeStatic} from './static-geometry.js';
 import {makeMaterials,roundedBox} from './maze-materials.js';
 import * as T from './vendor/three.module.js';
@@ -16,7 +17,7 @@ function ring(x,z,color,r=.34){const m=mesh(new T.TorusGeometry(r,.045,8,40),mat
  for(const z of [-.58,n-.42])mesh(roundedBox(n+.15,.055,.055,.012),m.brass,offset,-.055,z);
  for(const x of [-.58,n-.42])mesh(roundedBox(.055,.055,n+.15,.012),m.brass,x,-.055,offset);
  for(const x of [0,n-1])for(const z of [0,n-1]){const screw=mesh(new T.CylinderGeometry(.09,.09,.025,12),m.brass,x,.535,z);screw.castShadow=false;}
- ring(1,1,0x82f5d4);exitRing=ring(level.goal.x,level.goal.z,0x657a86,.36);
+ exitRing=addEndpointMarkers(board,level);
  for(const h of level.holes){const hole=mesh(new T.CylinderGeometry(.36,.36,.025,40),mat(0x02090e),h.x,-.018,h.z);hole.receiveShadow=false;ring(h.x,h.z,0xd78170,.39);}
  const starShape=new T.Shape();for(let i=0;i<10;i++){const a=i*Math.PI/5+Math.PI/2,r=i%2?.115:.25;const x=Math.cos(a)*r,y=Math.sin(a)*r;if(i===0)starShape.moveTo(x,y);else starShape.lineTo(x,y);}starShape.closePath();const starGeo=new T.ExtrudeGeometry(starShape,{depth:.075,bevelEnabled:true,bevelThickness:.018,bevelSize:.018,bevelSegments:2,steps:1});starGeo.rotateX(-Math.PI/2);starMeshes=level.stars.map(s=>mesh(starGeo,m.star,s.x,.28,s.z));
  sphere=mesh(new T.SphereGeometry(RADIUS,32,24),m.ball,ball.x,RADIUS,ball.z);

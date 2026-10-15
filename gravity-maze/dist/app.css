@@ -20,5 +20,7 @@
 /* 全屏退出入口留在画布内部；无论鼠标、触屏还是键盘都能返回窗口继续游戏。 */
 .fullscreen-exit{display:none;position:absolute;top:max(18px,env(safe-area-inset-top));right:max(20px,env(safe-area-inset-right));z-index:12;align-items:center;gap:9px;min-height:44px;padding:10px 14px;border:1px solid #fff8e7b8;border-radius:12px;background:#f8f3e8f2;color:#244742;box-shadow:0 4px 18px #162b2338;font-size:13px;font-weight:600;line-height:1.3;touch-action:manipulation}
 .fullscreen-exit:hover{background:#fffaf0;box-shadow:0 5px 22px #162b2348}.fullscreen-exit:focus-visible{outline:3px solid #e59c60;outline-offset:4px}.fullscreen-exit>span:first-child{font-size:20px;line-height:1}.fullscreen-exit kbd{color:#52675d;border-color:#bdc9bc;background:#e7ece1;font-size:10px}
-#boardViewport:fullscreen .fullscreen-exit:not([hidden]){display:inline-flex}#boardViewport:fullscreen .board-top{right:220px}#boardViewport:fullscreen .board-top>span:last-child{display:none}
+#boardViewport:fullscreen .fullscreen-exit:not([hidden]){display:inline-flex}#boardViewport:fullscreen .board-top{right:220px}#boardViewport:fullscreen .board-top>span:last-child{font-variant-numeric:tabular-nums}
 @media(max-width:480px){.fullscreen-exit{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));gap:6px;padding:10px 11px;font-size:12px}#boardViewport:fullscreen .board-top{left:15px;right:180px;font-size:9px;letter-spacing:.3px}#boardViewport:fullscreen .board-top>span{padding:6px}}
+/* 深度读数全屏可见；窄屏让出按钮位置。 */
+@media(max-width:600px){#boardViewport:fullscreen .board-top>span:first-child{display:none}}
