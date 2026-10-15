@@ -17,6 +17,7 @@ export class GyroController {
     try { const saved = localStorage.getItem('gyro-preview-nose'); if (NOSE_DIRECTIONS.includes(saved)) this.noseDirection = saved; } catch {}
     this.mode = 'gyro'; this.transport = 'ble'; this.selected = true; this.neutral = null; this.feed = new MotionFeed();
     this.output = { x: 0, y: 0 }; this.device = null; this.motion = null; this.control = null;
+    this.reconnecting = false; this.recoveryAt = null;
     this.generation = 0; this.connecting = false; this.calibrationPending = false;
     this.commandTail = Promise.resolve(); this.pendingCommands = 0; this.rtt = null;
     this.settings = { fullScale: 25, deadzone: 1.5, invertX: false, invertY: false, swap: false };
@@ -56,6 +57,7 @@ export class GyroController {
     return age == null || age >= PAUSE_AFTER_MS;
   }
   get pauseMessage() {
+    if (this.reconnecting) return '蓝牙已断开，正在自动重连；恢复后请重新设置中位。';
     if (!this.connected) return `${this.linkName}已断开，请重新连接并设置中位。`;
     if (!this.headingAvailable) return '机头沿 Z 轴时需要三轴姿态数据，请升级 GYB2 固件后重新设置中位。';
     const flags = this.feed.packet?.flags || 0;
@@ -110,6 +112,10 @@ export class GyroController {
 
   disconnect(message = '') {
     this.generation++;
+    clearTimeout(this.reconnectTimer); this.reconnectTimer = null; this.reconnecting = false;
+    this.recoveryAt = null;
+    // 新连接不能被旧连接尚未完成的命令队列阻塞。
+    this.commandTail = Promise.resolve(); this.pendingCommands = 0;
     void this.usb.disconnect();
     clearInterval(this.pingTimer);
     if (this.motion && this.notificationHandler) this.motion.removeEventListener('characteristicvaluechanged', this.notificationHandler);
@@ -121,25 +127,75 @@ export class GyroController {
     if (message) { this.message(message); this.onInterrupt(message); }
   }
 
-  async connect() {
+  scheduleReconnect(device, attempt = 0) {
+    this.disconnect();
+    if (this.wired || !this.selected || document.hidden || attempt >= 4) {
+      this.message('蓝牙连接已断开，请检查供电和距离，再点击连接蓝牙。');
+      this.onInterrupt(this.pauseMessage); this.renderStatus(); return;
+    }
+    const generation = this.generation;
+    this.reconnecting = true;
+    this.message(`蓝牙已断开，${2 ** attempt} 秒后自动重连（${attempt + 1}/4）；恢复后重新设置中位。`);
+    this.onInterrupt(this.pauseMessage); this.renderStatus();
+    this.reconnectTimer = setTimeout(() => {
+      if (generation !== this.generation) return;
+      if (this.wired || !this.selected || document.hidden) { this.disconnect(); return; }
+      this.connect(device, attempt + 1).catch(() => {});
+    }, 1000 * 2 ** attempt);
+  }
+
+  // GATT 读写与通知恢复共用串行队列，避免 Windows 上并发操作冲突。
+  maintainBle(generation) {
+    if (generation !== this.generation || !this.connected || this.pendingCommands || document.hidden || !this.selected) return;
+    const now = performance.now(), last = this.feed.lastPacketAt ?? this.linkStartedAt;
+    if (last != null && now - last >= PAUSE_AFTER_MS) {
+      if (this.recoveryAt != null) {
+        if (now - this.recoveryAt >= 3000) this.scheduleReconnect(this.device);
+        return;
+      }
+      this.recoveryAt = now;
+      const motion = this.motion;
+      this.pendingCommands++;
+      const operation = this.commandTail.catch(() => {}).then(async () => {
+        if (generation !== this.generation || !this.connected) return;
+        await deadline(motion.startNotifications());
+        if (generation !== this.generation || !this.connected) return;
+        const value = await deadline(motion.readValue());
+        if (generation === this.generation && this.connected) this.ingest(value, false);
+      });
+      this.commandTail = operation;
+      operation.catch(() => {
+        if (generation === this.generation) this.scheduleReconnect(this.device);
+      }).finally(() => { if (generation === this.generation) this.pendingCommands--; });
+      this.message('蓝牙仍连接，正在恢复姿态通知；飞行保持暂停。');
+      return;
+    }
+    this.command(2).catch(error => { if (generation === this.generation) this.message(error.message); });
+  }
+
+  async connect(reuseDevice = null, retryAttempt = 0) {
     if (this.wired) return this.connectUsb();
     if (!this.supported) throw Error('请用 Chrome 或 Edge 从本地快捷方式打开游戏');
     this.disconnect();
     const generation = this.generation;
     this.connecting = true;
-    this.message('请在浏览器蓝牙窗口中选择 GYRO-C3-BLE-xxxx。');
+    this.reconnecting = !!reuseDevice;
+    this.message(reuseDevice ? '正在重新连接蓝牙控制器…' : '请在浏览器蓝牙窗口中选择 GYRO-C3-BLE-xxxx。');
     try {
       // requestDevice runs directly inside the click handler's user gesture.
-      const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] });
+      const device = reuseDevice || await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] });
       if (generation !== this.generation) return;
       this.device = device;
-      this.disconnectHandler = () => { if (this.device === device) this.disconnect('蓝牙连接已断开，请重新连接并设置中位。'); };
+      this.disconnectHandler = () => { if (this.device === device && !this.connecting) this.scheduleReconnect(device); };
       device.addEventListener('gattserverdisconnected', this.disconnectHandler);
       const connecting = device.gatt.connect();
       connecting.then(server => { if (generation !== this.generation && server.connected) server.disconnect(); }, () => {});
       const server = await deadline(connecting, 25000);
+      if (generation !== this.generation) return;
       const service = await deadline(server.getPrimaryService(BLE_SERVICE), 10000);
+      if (generation !== this.generation) return;
       const motion = await deadline(service.getCharacteristic(BLE_MOTION));
+      if (generation !== this.generation) return;
       const control = await deadline(service.getCharacteristic(BLE_COMMAND));
       if (generation !== this.generation) { if (server.connected) server.disconnect(); return; }
       this.motion = motion; this.control = control;
@@ -152,22 +208,23 @@ export class GyroController {
       motion.addEventListener('characteristicvaluechanged', this.notificationHandler);
       await deadline(motion.startNotifications());
       if (generation !== this.generation) return;
-      this.connecting = false;
+      this.connecting = false; this.reconnecting = false;
+      this.recoveryAt = null;
       this.message(`已连接 ${device.name || 'GYRO-C3-BLE'}。请静置约 2–4 秒，姿态就绪后设置中位。`);
-      const ping = () => {
-        if (!this.connected || this.pendingCommands) return;
-        this.command(2).catch(error => { if (generation === this.generation) this.message(error.message); });
-      };
+      this.linkStartedAt = performance.now();
+      const ping = () => this.maintainBle(generation);
       ping(); this.pingTimer = setInterval(ping, 1000);
     } catch (error) {
-      if (generation === this.generation) this.disconnect();
+      if (generation === this.generation) {
+        if (reuseDevice) this.scheduleReconnect(reuseDevice, retryAttempt); else this.disconnect();
+      }
       if (error.name === 'NotFoundError') throw Error('未选择控制器；请确认开发板已烧录蓝牙固件并有电');
       throw error;
     } finally { if (generation === this.generation) this.connecting = false; this.renderStatus(); }
   }
 
-  ingest(value) {
-    this.feed.ingest(value, performance.now());
+  ingest(value, notification = true) {
+    if (this.feed.ingest(value, performance.now()) && notification) this.recoveryAt = null;
     if (this.feed.packet?.flags & CALIBRATING) this.calibrationPending = false;
     if (!(this.feed.packet?.flags & READY)) this.invalidate();
   }
@@ -201,14 +258,18 @@ export class GyroController {
       const started = performance.now();
       let reply;
       if (this.wired) reply = await this.usb.command(op, id);
-      else { await deadline(control.writeValueWithResponse(bytes)); reply = await deadline(control.readValue()); }
+      else {
+        await deadline(control.writeValueWithResponse(bytes));
+        if (generation !== this.generation) throw Error('控制器连接已变化，请重试');
+        reply = await deadline(control.readValue());
+      }
       const now = performance.now();
       if (generation !== this.generation) throw Error('控制器连接已变化，请重试');
       if (reply.byteLength !== 9 || reply.getUint8(0) !== op || reply.getUint32(1, true) !== id) throw Error('控制器指令应答不匹配');
       if (op === 2) { this.rtt = now - started; this.feed.anchorClock(reply.getUint32(5, true), now); }
     });
     this.commandTail = operation;
-    return operation.finally(() => { this.pendingCommands--; });
+    return operation.finally(() => { if (generation === this.generation) this.pendingCommands--; });
   }
 
   bindUI(onPanelVisibility) {
@@ -223,7 +284,9 @@ export class GyroController {
     $('gyroClose').onclick = close;
     $('gyroPanel').addEventListener('keydown', event => { if (event.key === 'Escape') { close(); event.stopPropagation(); } });
     $('controlMode').onchange = () => {
-      const mode=$('controlMode').value, transport=mode==='usb'?'usb':mode==='gyro'?'ble':this.transport;
+      const mode=$('controlMode').value;
+      if(mode==='keyboard' && this.reconnecting)this.disconnect();
+      const transport=mode==='usb'?'usb':mode==='gyro'?'ble':this.transport;
       if(transport!==this.transport){this.disconnect();this.transport=transport;}
       this.mode=mode;this.selected=mode!=='keyboard';this.output={x:0,y:0};
       $('gyroModelCard').classList.toggle('hidden',!this.selected);
@@ -255,6 +318,7 @@ export class GyroController {
     const linked = this.connected, alive = linked && this.feed.lastPacketAt != null && now - this.feed.lastPacketAt < STALE_MS;
     let status = `${label}尚未连接`;
     if (!this.supported) status = `请使用支持${this.wired ? 'USB 串口' : '蓝牙'}的 Chrome / Edge`;
+    else if (this.reconnecting) status = '蓝牙意外断开 · 正在自动重连';
     else if (this.connecting) status = `正在选择 / 连接${label}控制器`;
     else if (linked && !alive) status = !packet ? `${label}已连接 · 等待姿态数据` : this.mustPause ? `${label}已连接 · 数据持续中断` : `${label}已连接 · 数据短暂停顿`;
     else if (alive && !(packet?.flags & SENSOR_OK)) status = `${label}已连接 · 请检查 MPU6050 接线`;
@@ -271,7 +335,7 @@ export class GyroController {
     const controlStatus = !linked ? '待连接' : this.calibrationPending || packet?.flags & CALIBRATING ? '校准中' : !this.neutral ? '待设中位' : this.fresh ? '已就绪' : '等待数据';
     $('gyroToggle').textContent = this.selected ? `${this.wired ? 'USB 有线' : '蓝牙体感'} · ${controlStatus}` : '体感设置';
     $('gyroConnect').disabled = !this.supported || this.connecting;
-    $('gyroDisconnect').disabled = !this.connected && !this.connecting;
+    $('gyroDisconnect').disabled = !this.connected && !this.connecting && !this.reconnecting;
     $('gyroRtt').textContent = alive && this.rtt != null ? `${this.rtt.toFixed(1)} ms` : '—';
     $('gyroRate').textContent = alive ? `${this.feed.arrivals.length} Hz` : '—';
     const age = this.feed.age(now);
