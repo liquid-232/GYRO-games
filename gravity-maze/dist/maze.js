@@ -1,3 +1,4 @@
+import {createDeskScene} from './desk-scene.js';
 import {createSphereLevel,stepSphere,spherePoint,surfaceDistance} from './sphere-physics.js';
 import {createSphereModel} from './sphere-model.js';
 import * as T from './vendor/three.module.js';
@@ -8,6 +9,8 @@ const $=id=>document.getElementById(id),keys=new Set(),touch={x:0,y:0};
 let family='sphere',checkpoint=null,mode='menu',index=0,level,ball,elapsed=0,falls=0,collected=new Set(),accumulator=0,fallTime=0,poseView,poseLoad;
 const names=['01 / 初识重力','02 / 曲径寻星','03 / 精密穿行'],orbNames=['01 / 环绕初航','02 / 起伏回廊','03 / 极限窄桥'];
 const isOrb=()=>level?.kind==='sphere';
+let closeView=false;
+let renderQuality='ultra';try{renderQuality=localStorage.getItem('gravity-maze-quality')==='balanced'?'balanced':'ultra';}catch{}
 const recordKey=()=>`gravity-maze-best-${family==='sphere'?'sphere-v1-':''}${index}`;
 const gyro=new GyroController({onInterrupt:message=>pause(message),onNoseDirection:d=>poseView?.setNoseDirection(d),onPanelVisibility:visible=>{
   if(poseView){poseView.setVisible(visible);return;}if(!visible||poseLoad)return;
@@ -20,36 +23,49 @@ $('gyroPanel').querySelector('.gyro-footnote').textContent='设置中位后关�
 const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true,powerPreference:'high-performance'});
 renderer.setClearColor(0x102e33);renderer.outputColorSpace=T.SRGBColorSpace;
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
-renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=.96;
 renderer.transmissionResolutionScale=1;
 const scene=new T.Scene(),camera=new T.OrthographicCamera(-8,8,8,-8,.1,100);camera.position.set(0,19,10);camera.lookAt(0,0,0);
 // 中性棚拍主光保留塑料原色，侧后方补光突出透明壳与钢珠的弧面。
-scene.add(new T.HemisphereLight(0xf0f5f2,0x283c45,.85));
-const light=new T.DirectionalLight(0xfff1df,2.6);light.position.set(-5,16,7);light.castShadow=true;
+scene.add(new T.HemisphereLight(0xf7f3e9,0x877159,.8));
+const light=new T.DirectionalLight(0xffefd7,2.7);light.position.set(-9,18,12);light.castShadow=true;
 const shadowSize=Math.min(4096,renderer.capabilities.maxTextureSize);light.shadow.mapSize.set(shadowSize,shadowSize);
-Object.assign(light.shadow.camera,{left:-10,right:10,top:10,bottom:-10,near:.5,far:45});
+Object.assign(light.shadow.camera,{left:-18,right:18,top:18,bottom:-18,near:.5,far:65});
 light.shadow.bias=-.00015;light.shadow.normalBias=.018;scene.add(light);
-const rim=new T.DirectionalLight(0xd6f4ff,1.6);rim.position.set(8,4,-8);scene.add(rim);
+const rim=new T.DirectionalLight(0xe2eeff,1.25);rim.position.set(8,4,-8);scene.add(rim);
 const fill=new T.DirectionalLight(0xe5eeff,.55);fill.position.set(0,-5,8);scene.add(fill);
-// 环绕六块不同宽度的柔光箱，球壳和金属球随视角移动时会呈现连续倒影。
-const environment=new T.Scene();environment.background=new T.Color(0x35444b);
+// 窗口与室内补光倒影，呼应木桌上的自然日光。
+const environment=new T.Scene();environment.background=new T.Color(0x766957);
 for(const [position,width,height,color,intensity] of [
- [[-7,5,6],5,11,0xfff3e2,2.5],[[7,4,1],3,12,0xe8f6ff,2.1],
- [[0,10,-3],8,5,0xffffff,2],[[1,-7,5],8,3,0xe9f2f1,.8],
- [[-4,1,-9],2.5,10,0xffffff,1.8],[[7,0,-7],5,7,0xdcecff,1.1]
+ [[-8,10,9],7,9,0xfff4de,2],[[9,8,2],4,8,0xe8f4ff,1.2],
+ [[0,11,-4],5,4,0xffffff,.9],[[2,1,-10],4,8,0xffeed7,.55]
 ]){
  const panel=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({color:new T.Color(color).multiplyScalar(intensity)}));
  panel.position.set(...position);panel.lookAt(0,0,0);environment.add(panel);
 }
 const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment,0,.1,100,{size:512});
-scene.environment=env.texture;scene.environmentIntensity=.85;pmrem.dispose();
+scene.environment=env.texture;scene.environmentIntensity=.7;pmrem.dispose();
 for(const panel of environment.children){panel.geometry.dispose();panel.material.dispose();}
+const desk=createDeskScene();scene.add(desk);
+const maxAnisotropy=renderer.capabilities.getMaxAnisotropy();
+desk.traverse(o=>{for(const key of ['map','bumpMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
 let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
+const deskCamera=new T.Vector3(0,11,21),deskFocus=new T.Vector3(0,-.35,0);
+const fixedNormal=deskCamera.clone().sub(deskFocus).normalize(),fixedNorth=new T.Vector3(0,1,0).addScaledVector(fixedNormal,-fixedNormal.y).normalize();
+const fixedFrame=new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(fixedNorth.clone().cross(fixedNormal).normalize(),fixedNorth,fixedNormal));
+// 相机固定在木桌前，转动整个玩具，让当前滚球仍朝向玩家，木桌和周围玩具不会翻转。
+function orientToy(dt=0){
+ const normal=new T.Vector3(...spherePoint(level,ball.x,ball.z)).normalize(),north=new T.Vector3(0,1,0).addScaledVector(normal,-normal.y).normalize();
+ const frame=new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(north.clone().cross(normal).normalize(),north,normal));
+ const target=fixedFrame.clone().multiply(frame.invert());
+ if(dt)board.quaternion.slerp(target,1-Math.exp(-8*dt));else board.quaternion.copy(target);
+ board.position.set(0,0,0);
+}
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
- scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);
- $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'视角随球环绕 · 星星存档 · 金色窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
- [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){const normal=new T.Vector3(...spherePoint(level,ball.x,ball.z)).normalize();camera.position.copy(normal.multiplyScalar(20));camera.lookAt(0,0,0);}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
+ scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=isOrb();document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
+ $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'球体随路线转动 · 星星存档 · 窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
+ [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){camera.position.copy(deskCamera);camera.lookAt(deskFocus);orientToy();}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
 function hud(){$('timer').textContent=`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`;$('stars').textContent=`${collected.size} / 3`;$('falls').textContent=falls;}
 // 暂停、结算和连接设置位于画布外，显示前先退出全屏，确保面板可见。
@@ -80,16 +96,20 @@ document.addEventListener('fullscreenchange',()=>{
  const expanded=document.fullscreenElement===$('boardViewport');
  $('mazeExpand').textContent=expanded?'退出全屏 ↙':'全屏查看 ⛶';$('mazeExpand').setAttribute('aria-pressed',String(expanded));resize();
 });
+$('mazeDetail').onclick=()=>{closeView=!closeView;$('mazeDetail').textContent=closeView?'查看全景':'近看模型';$('mazeDetail').setAttribute('aria-pressed',String(closeView));$('mazeDetail').blur();resize();};
+$('renderQuality').value=renderQuality;
+$('renderQuality').onchange=()=>{renderQuality=$('renderQuality').value;try{localStorage.setItem('gravity-maze-quality',renderQuality);}catch{}resize();$('renderQuality').blur();};
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel,button'))return;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat){if(mode==='playing')pause();else if(mode==='paused')start();}return;}if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>pause());document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);touch.x=Number(b.dataset.x);touch.y=Number(b.dataset.y);};b.onpointerup=b.onpointercancel=()=>{touch.x=touch.y=0;};}
 function resize(){
  const r=$('boardViewport').getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height),aspect=width/height;
- // 给直径 11.3 的外球壳留出构图边距；窄屏按宽度适配，不裁切球体。
- const half=isOrb()?6.25:(level?.size||9)*.57;
+ // 全景展示木桌环境，近看放大迷宫；窄屏按宽度适配。
+ const half=isOrb()?(closeView?6.2:7.8):(level?.size||9)*.57;
  camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();
- // 普通屏幕也使用 1.5 倍采样，高分屏最高 2.5 倍；限制像素总量降低透射渲染开销。
- const qualityRatio=Math.min(2.5,Math.max(1.5,window.devicePixelRatio||1)),pixelBudgetRatio=Math.sqrt(4000000/(width*height));
- renderer.setPixelRatio(Math.min(qualityRatio,pixelBudgetRatio));renderer.setSize(width,height,false);
+ // 超清默认 2 倍采样，最高 3 倍；大屏仍至少保持原生像素，避免 4MP 上限造成缩小后放大。
+ const ultra=renderQuality==='ultra',targetRatio=Math.min(ultra?3:2,Math.max(ultra?2:1.25,window.devicePixelRatio||1));
+ const budgetRatio=Math.sqrt((ultra?14000000:5000000)/(width*height));
+ renderer.setPixelRatio(Math.max(1,Math.min(targetRatio,budgetRatio)));renderer.setSize(width,height,false);
 }new ResizeObserver(resize).observe($('boardViewport'));
 let previous=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min(.05,Math.max(0,(now-previous)/1000));previous=now;
  if(mode==='playing'){
@@ -106,10 +126,7 @@ let previous=performance.now();function frame(now){requestAnimationFrame(frame);
    }
    if(isOrb()){
     sphere.position.set(...spherePoint(level,ball.x,ball.z,RADIUS-(fallTime>0?(1-fallTime/.45)*.7:0)));
-    const normal=new T.Vector3(...spherePoint(level,ball.x,ball.z)).normalize();
-    const north=new T.Vector3(0,1,0).addScaledVector(normal,-normal.y).normalize();
-    camera.up.lerp(north,1-Math.exp(-8*dt)).normalize();
-    camera.position.lerp(normal.multiplyScalar(20),1-Math.exp(-7*dt));camera.lookAt(0,0,0);
+    orientToy(dt);
    }else{
     sphere.position.x=ball.x;sphere.position.z=ball.z;
     board.rotation.z=T.MathUtils.damp(board.rotation.z,-input.x*.035,7,dt);board.rotation.x=T.MathUtils.damp(board.rotation.x,-input.y*.035,7,dt);const offset=(level.size-1)/2;board.position.set(-offset,0,-offset).applyQuaternion(board.quaternion);
@@ -120,4 +137,4 @@ let previous=performance.now();function frame(now){requestAnimationFrame(frame);
  starMeshes.forEach((m,i)=>{if(isOrb()){m.quaternion.copy(m.userData.baseQuaternion);m.rotateZ(now*.001+i);}else{m.rotation.y=now*.001+i;m.position.y=.37+Math.sin(now*.002+i)*.05;}});renderer.render(scene,camera);
 }
 buildLevels();loadLevel(0);requestAnimationFrame(frame);
-window.addEventListener('pagehide',()=>{renderer.dispose();env.dispose();});
+window.addEventListener('pagehide',()=>{disposeMazeModel(board);disposeMazeModel(desk);renderer.dispose();env.dispose();});

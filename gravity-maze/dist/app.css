@@ -13,3 +13,6 @@
 #boardViewport:fullscreen .board-top>span:last-child::after{content:" / ESC 返回"}
 
 #boardViewport:fullscreen #pad{position:absolute;bottom:55px;right:25px}
+
+/* 木桌日光场景：叠加文字使用暖白底，细节缩放和画质可直接选择。 */
+.quality-setting{display:flex;align-items:center;gap:5px;font-size:11px;color:#6b7466}.quality-setting select{font:inherit;padding:8px 5px;border:1px solid #cbd1c2;background:#faf8f0;border-radius:8px;color:#334d42}.arena-actions{align-items:center}.arena-actions button{white-space:nowrap}#boardViewport{height:clamp(480px,62vh,900px)}.toy-room .board-top{color:#615441}.toy-room .board-top>span{background:#fff8e6da;padding:6px 9px;border-radius:5px}.toy-room .board-caption{color:#4c463b;background:#fff9e9df;left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:90%;padding:7px 12px;border-radius:6px;letter-spacing:.3px}.toy-room #boardViewport{background:#d5b68d}.toy-room #boardViewport:fullscreen{height:100vh}.toy-room .board-top{letter-spacing:1px}@media(max-width:900px){.arena-heading{flex-wrap:wrap;gap:12px}.arena-actions{margin-left:auto}.quality-setting{font-size:10px}#boardViewport{height:60vh;min-height:420px}}

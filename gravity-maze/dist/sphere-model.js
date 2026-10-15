@@ -1,3 +1,4 @@
+import {addSphereInterior} from './sphere-interior.js';
 import * as T from './vendor/three.module.js';
 import {mergeStatic} from './static-geometry.js';
 import {spherePoint,metrics} from './sphere-physics.js';
@@ -12,10 +13,22 @@ function materials(){
  const plastic=color=>new T.MeshPhysicalMaterial({color,metalness:0,roughness:.29,clearcoat:.75,clearcoatRoughness:.18,ior:1.46,side:T.DoubleSide});
  return {tracks:[0xffc235,0xfa7841,0xa9cc52,0x70bfc1].map(plastic),frame:plastic(0x6354b4),
   hole:plastic(0xdf5546),start:plastic(0x3fbb9a),exit:plastic(0xa0bbb1),
-  shell:new T.MeshPhysicalMaterial({color:0xffffff,metalness:0,roughness:.025,transmission:1,thickness:.02,ior:1.46,clearcoat:.25,clearcoatRoughness:.025,envMapIntensity:.65}),
+  shell:clearShellMaterial(),
   seam:new T.MeshPhysicalMaterial({color:0xd5eced,metalness:0,roughness:.2,transparent:true,opacity:.24,depthWrite:false}),
   chrome:new T.MeshPhysicalMaterial({color:0xe8edf1,metalness:1,roughness:.105,clearcoat:1,clearcoatRoughness:.06,envMapIntensity:1.4}),
   star:new T.MeshStandardMaterial({color:0xffd454,metalness:.65,roughness:.23,emissive:0x9e5313,emissiveIntensity:.1})};
+}
+// 薄透明壳直接合成内部原始画面，避免屏幕空间透射采样把细轨道变软。
+// 视线越贴近轮廓反光越明显，球心只留很淡的保护壳高光。
+function clearShellMaterial(){
+ const mat=new T.MeshPhysicalMaterial({color:0xf6fcff,metalness:0,roughness:.07,transparent:true,opacity:.06,depthWrite:false,transmission:0,ior:1.46,clearcoat:.35,clearcoatRoughness:.06,envMapIntensity:1.1});
+ mat.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>',`
+  float shellEdge=pow(1.0-clamp(dot(normal,geometryViewDir),0.0,1.0),3.5);
+  diffuseColor.a=mix(0.018,0.5,shellEdge);
+  outgoingLight=mix(outgoingLight,vec3(0.12,0.20,0.23),shellEdge*0.72);
+  #include <opaque_fragment>
+ `);};
+ mat.customProgramCacheKey=()=> 'crisp-toy-shell-v1';return mat;
 }
 // 有厚度的轨道沿物理曲面细分，法线通过曲面导数计算，消除相邻格子的明暗断缝。
 function normalAt(level,x,z,extra){
@@ -118,6 +131,7 @@ export function createSphereModel(level){
   support.position.copy(anchor).add(inner).multiplyScalar(.5);support.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),anchor.clone().sub(inner).normalize());
   const collar=add(new T.TorusGeometry(.11,.025,16,48),m.frame);collar.position.copy(anchor);collar.quaternion.setFromUnitVectors(Z,anchor.clone().normalize());
  }
+ addSphereInterior(board,m);
  // 两半球的注塑合模线和紫色扣合环，参考真实玩具的装配结构。
  const seamRotation=new T.Euler(.32,0,.18),seamQuaternion=new T.Quaternion().setFromEuler(seamRotation);
  const rim=add(new T.TorusGeometry(SHELL_RADIUS-.025,.065,24,256),m.frame);rim.quaternion.copy(seamQuaternion);
