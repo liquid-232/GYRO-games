@@ -24,7 +24,7 @@ const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause(
  if(poseView){poseView.setVisible(visible);return;}
  if(!visible||poseLoad)return;
  poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{
-   poseView=new GyroPoseView($('gyroModel'),gyro);
+   poseView=new GyroPoseView($('gyroModel'),gyro,selectedMap);
    poseView.setVisible(gyro.selected && !$('gyroPanel').classList.contains('hidden'));
  }).catch(()=>{$('gyroModelState').textContent='3D 预览暂不可用，角度读数和操控仍可使用';poseLoad=null;});
 }});
@@ -38,6 +38,7 @@ try{const saved=localStorage.getItem('gyro-skystrike-map');if(saved==='island'||
 function selectMap(kind){
  if(mode!=='menu'&&mode!=='loading')return;
  selectedMap=kind==='island'?'island':'space';const orbital=selectedMap==='space';
+ poseView?.setAircraftKind(selectedMap);
  if(orbital&&!spaceMap)spaceMap=createSpaceMap(scene);
  islandMap.root.visible=!orbital;if(spaceMap)spaceMap.root.visible=orbital;
  activeMap=orbital?spaceMap:islandMap;activeMap.reset();

@@ -9,11 +9,15 @@ export function parseAircraft(buffer){const dv=new DataView(buffer);if(dv.getUin
 // Reorient the game's Y-up, -Z-forward aircraft into the sensor's
 // +X-forward, +Y-left, +Z-up coordinate frame, without mirroring it.
 export function createAircraftPoseModel(buffer) {
-  const aircraft = parseAircraft(buffer);
+  return createAircraftPoseFromObject(parseAircraft(buffer));
+}
+
+// Share the same body-axis conversion for every Y-up, -Z-forward player model.
+export function createAircraftPoseFromObject(aircraft) {
   const bounds = new T.Box3().setFromObject(aircraft);
   const center = bounds.getCenter(new T.Vector3()), size = bounds.getSize(new T.Vector3());
   aircraft.position.copy(center).negate();
-  const model = new T.Group(); model.name = 'F22-pose'; model.add(aircraft);
+  const model = new T.Group(); model.name = 'Aircraft-pose'; model.add(aircraft);
   model.quaternion.setFromRotationMatrix(new T.Matrix4().set(
     0, 0, -1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1));
   model.scale.setScalar(2.6 / Math.max(size.x, size.y, size.z));

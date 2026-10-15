@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.js';
 import { createGyroModel, createBodyAxes, poseQuaternion } from './gyro-model.js';
-import { createAircraftPoseModel, setAircraftNoseDirection, NOSE_DIRECTIONS } from './aircraft-model.js';
+import { createAircraftPoseModel, createAircraftPoseFromObject, setAircraftNoseDirection, NOSE_DIRECTIONS } from './aircraft-model.js';
+import { createSpaceplane, updateSpaceplane } from './spaceplane-model.js';
 import { CALIBRATING, SENSOR_OK } from './ble-protocol.js';
 
 function textTexture(text, color) {
@@ -19,7 +20,7 @@ const axisLabel = (text, width, height, color) => {
 };
 
 export class GyroPoseView {
-  constructor(container, controller) {
+  constructor(container, controller, aircraftKind = 'island') {
     this.container = container; this.controller = controller; this.visible = false; this.frame = null;
     this.$ = id => document.getElementById(id);
     this.renderer = new T.WebGLRenderer({ canvas: this.$('gyroModelCanvas'), antialias: true, alpha: true, powerPreference: 'low-power' });
@@ -29,7 +30,8 @@ export class GyroPoseView {
     this.scene.add(new T.HemisphereLight(0xdcefff, 0x385376, 3));
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
-    this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftLoad = null;
+    this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftModels = new Map(); this.aircraftLoads = new Map(); this.selectionRevision = 0;
+    this.aircraftKind = aircraftKind === 'space' ? 'space' : 'island';
     this.noseDirection = controller.noseDirection;
     this.requestedModel = 'aircraft'; this.modelKind = 'aircraft'; this.disposed = false;
     this.board.visible = false;
@@ -52,52 +54,79 @@ export class GyroPoseView {
     window.addEventListener('pagehide', () => this.dispose(), { once: true });
     void this.selectModel('aircraft');
   }
+  setAircraftKind(kind) {
+    const next = kind === 'space' ? 'space' : 'island';
+    if (this.disposed || next === this.aircraftKind) return;
+    this.aircraftKind = next;
+    if (this.aircraft) this.aircraft.visible = false;
+    this.aircraft = this.aircraftModels.get(next) ?? null;
+    void this.selectModel(this.requestedModel);
+  }
   async selectModel(kind) {
-    this.requestedModel = kind;
+    if (this.disposed) return;
+    const revision = ++this.selectionRevision, aircraftKind = this.aircraftKind;
+    this.requestedModel = kind; this.modelKind = kind;
     this.$('gyroModelLoading').textContent = '';
-    if (kind === 'aircraft' && !this.aircraft) {
-      this.$('gyroModelLoading').textContent = '正在装载飞机…';
-      this.$('gyroShowAircraft').disabled = true;
-      try {
-        if (!this.aircraftLoad) this.aircraftLoad = this.loadAircraft();
-        await this.aircraftLoad;
-      } catch {
-        if (!this.disposed && this.requestedModel === 'aircraft') this.$('gyroModelLoading').textContent = '装载失败，点击飞机重试';
-        return;
-      } finally {
-        this.aircraftLoad = null;
-        if (!this.disposed) this.$('gyroShowAircraft').disabled = false;
-      }
-    }
-    if (this.disposed || this.requestedModel !== kind) return;
-    this.modelKind = kind;
+    this.$('gyroShowAircraft').disabled = false;
     this.board.visible = kind === 'board';
-    if (this.aircraft) this.aircraft.visible = kind === 'aircraft';
-    this.$('gyroModelLoading').textContent = '';
+    for (const model of this.aircraftModels.values()) model.visible = false;
     this.$('gyroShowBoard').setAttribute('aria-pressed', String(kind === 'board'));
     this.$('gyroShowAircraft').setAttribute('aria-pressed', String(kind === 'aircraft'));
-    this.$('gyroModelTitle').textContent = kind === 'board' ? 'MPU6050 · 实时姿态' : 'F-22 · 实时姿态';
-    this.$('gyroModelWatermark').textContent = kind === 'board' ? 'GY-521 / BODY AXES' : 'F-22 RAPTOR / BODY AXES';
-    this.$('gyroModelCanvas').setAttribute('aria-label', `${kind === 'board' ? 'MPU6050' : 'F-22 飞机'}三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴`);
+    const name = aircraftKind === 'space' ? '玄女' : 'F-22';
+    this.$('gyroModelTitle').textContent = kind === 'board' ? 'MPU6050 · 实时姿态' : `${name} · 实时姿态`;
+    this.$('gyroModelWatermark').textContent = kind === 'board' ? 'GY-521 / BODY AXES' : `${aircraftKind === 'space' ? 'XUAN NV' : 'F-22 RAPTOR'} / BODY AXES`;
+    this.$('gyroModelCanvas').setAttribute('aria-label', `${kind === 'board' ? 'MPU6050' : name + ' 飞机'}三维模型，红色 X 横滚轴、绿色 Y 俯仰轴、蓝色 Z 偏航轴`);
     this.$('gyroNoseDirection').disabled = kind === 'board';
     this.$('gyroModelAxesHelp').textContent = kind === 'board'
       ? '三轴交于芯片中心，箭头指向正方向。X 指向安装孔一侧，Y 指向 VCC 一端，Z 垂直芯片面向上。浅色网格为水平参考。'
       : `三轴交于机身中心；机头朝向 ${this.noseDirection ?? '+X'}。箭头指向传感器正方向，浅色网格为水平参考。`;
+    if (kind === 'board') return;
+    if (!this.aircraftModels.has(aircraftKind)) {
+      this.$('gyroModelLoading').textContent = `正在装载${name}…`;
+      this.$('gyroShowAircraft').disabled = true;
+      try {
+        if (!this.aircraftLoads.has(aircraftKind)) {
+          const pending = this.loadAircraft(aircraftKind).finally(() => this.aircraftLoads.delete(aircraftKind));
+          this.aircraftLoads.set(aircraftKind, pending);
+        }
+        await this.aircraftLoads.get(aircraftKind);
+      } catch {
+        if (!this.disposed && revision === this.selectionRevision) this.$('gyroModelLoading').textContent = '装载失败，点击飞机重试';
+        return;
+      } finally {
+        if (!this.disposed && revision === this.selectionRevision) this.$('gyroShowAircraft').disabled = false;
+      }
+    }
+    // A slow F-22 fetch must not replace a newer map/model selection.
+    if (this.disposed || revision !== this.selectionRevision) return;
+    this.aircraft = this.aircraftModels.get(aircraftKind);
+    setAircraftNoseDirection(this.aircraft, this.noseDirection);
+    this.aircraft.visible = true;
+    this.$('gyroModelLoading').textContent = '';
   }
   setNoseDirection(direction) {
     if (!NOSE_DIRECTIONS.includes(direction)) return;
     this.noseDirection = direction;
-    if (this.aircraft) setAircraftNoseDirection(this.aircraft, direction);
+    for (const model of this.aircraftModels.values()) setAircraftNoseDirection(model, direction);
     if (this.modelKind === 'aircraft') this.$('gyroModelAxesHelp').textContent = `三轴交于机身中心；机头朝向 ${direction}。箭头指向传感器正方向，浅色网格为水平参考。`;
   }
-  async loadAircraft() {
-    const response = await fetch('assets/airplane-f22.glb');
-    if (!response.ok) throw Error(`Aircraft HTTP ${response.status}`);
-    const buffer = await response.arrayBuffer();
-    if (this.disposed) return;
-    const aircraft = createAircraftPoseModel(buffer);
+  async loadAircraft(kind) {
+    let aircraft;
+    if (kind === 'space') {
+      if (this.disposed) return;
+      const model = createSpaceplane();
+      updateSpaceplane(model, 0, false);
+      aircraft = createAircraftPoseFromObject(model);
+    } else {
+      const response = await fetch('assets/airplane-f22.glb');
+      if (!response.ok) throw Error(`Aircraft HTTP ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      if (this.disposed) return;
+      aircraft = createAircraftPoseModel(buffer);
+    }
     setAircraftNoseDirection(aircraft, this.noseDirection);
-    aircraft.visible = false; this.body.add(aircraft); this.aircraft = aircraft;
+    aircraft.visible = false; this.body.add(aircraft); this.aircraftModels.set(kind, aircraft);
+    if (this.environment) return;
     // Local studio reflections preserve the metal finish of the game's aircraft.
     const studio = new T.Scene(); studio.background = new T.Color(0x344a5d);
     for (const [x,y,z,color] of [[-8,9,0,0xdcf6ff],[8,5,2,0xffe0b0],[0,3,-10,0x78bfff]]) {
@@ -158,6 +187,6 @@ export class GyroPoseView {
     geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => {
       for (const key of ['map', 'bumpMap', 'roughnessMap']) if (material[key]) textures.add(material[key]);
       material.dispose();
-    }); textures.forEach(texture => texture.dispose()); this.environment?.dispose(); this.renderer.dispose();
+    }); textures.forEach(texture => texture.dispose()); this.aircraftModels.clear(); this.aircraftLoads.clear(); this.environment?.dispose(); this.renderer.dispose();
   }
 }
