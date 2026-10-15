@@ -5,6 +5,15 @@ import * as T from './vendor/three.module.js';
 export const SEA_LEVEL = -3;
 const TAU = Math.PI * 2;
 const time = { value: 0 };
+// Shared direction keeps sky, water highlights and scene lighting coherent.
+export const COAST_SUN = new T.Vector3(-32,38,-45).normalize();
+const waterNoise = `
+  float hash21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  float noise21(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+    return mix(mix(hash21(i),hash21(i+vec2(1.,0.)),f.x),mix(hash21(i+vec2(0.,1.)),hash21(i+vec2(1.,1.)),f.x),f.y);}
+  float fbm(vec2 p){return noise21(p)*.57+noise21(p*2.07+13.1)*.28+noise21(p*4.13-7.4)*.15;}
+`;
+
 function random(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
 const coast = (a, seed) => 1 + .095 * Math.sin(a * 3 + seed) + .055 * Math.sin(a * 5 - seed * .7) + .035 * Math.cos(a * 9 + seed);
 function noise(x,z) {
@@ -21,15 +30,22 @@ function terrainHeight(u,v,height,seed) {
 }
 const stone = new T.MeshStandardMaterial({ vertexColors: true, roughness: .91, metalness: .04 });
 stone.onBeforeCompile = shader => {
-  shader.vertexShader = 'varying vec3 vTerrain;\n' + shader.vertexShader;
+  shader.uniforms.uCoastTime=time;
+  shader.vertexShader = 'varying vec3 vTerrain; varying vec3 vCoastWorld;\n' + shader.vertexShader;
   shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrain = position;');
-  shader.fragmentShader = 'varying vec3 vTerrain;\n' + shader.fragmentShader;
+  // worldPosition is conditional in Three.js; compute explicitly for every variant.
+  shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvCoastWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = 'uniform float uCoastTime; varying vec3 vTerrain; varying vec3 vCoastWorld;\n' + waterNoise + shader.fragmentShader;
   shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-    float grain = sin(vTerrain.x*15.3 + sin(vTerrain.z*8.2))*sin(vTerrain.z*17.1+vTerrain.y*11.0);
+    float grain = fbm(vTerrain.xz*5. + vTerrain.y*.7);
     float strata = sin(vTerrain.y*6.0 + sin(vTerrain.x*.6) + sin(vTerrain.z*.8));
-    diffuseColor.rgb *= .89 + .10*grain + .035*strata;`);
+    float wetLevel = -2.72 + noise21(vCoastWorld.xz*.45)*.15 + sin(uCoastTime*.7)*.035;
+    float wetness = 1.-smoothstep(wetLevel-.12,wetLevel+.55,vCoastWorld.y);
+    diffuseColor.rgb *= (.82 + .22*grain + .035*strata) * mix(1.,.58,wetness);`);
+  shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+    roughnessFactor=mix(roughnessFactor,.31,wetness);`);
 };
-stone.customProgramCacheKey = () => 'island-stone-v1';
+stone.customProgramCacheKey = () => 'island-wet-coast-v2';
 const metal = new T.MeshStandardMaterial({ color: 0x64747c, roughness: .4, metalness: .65 });
 const concrete = new T.MeshStandardMaterial({ color: 0x49575d, roughness: .9 });
 const white = new T.MeshStandardMaterial({ color: 0xc6ceca, roughness: .56, metalness: .25 });
@@ -66,28 +82,47 @@ function islandGeometry(rx, rz, height, seed) {
 }
 const shoreMaterial = new T.ShaderMaterial({
   transparent:true,depthWrite:false,uniforms:{uTime:time},
-  vertexShader:`varying vec2 vUv; varying vec3 vWorld;
-    void main(){vUv=uv;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
-  fragmentShader:`uniform float uTime;varying vec2 vUv;varying vec3 vWorld;
-    void main(){float r=vUv.y;float ripple=sin(r*59.-uTime*1.8+sin(vUv.x*38.)*1.4);
-      float foam=pow(max(0.,ripple),12.)*(1.-smoothstep(.12,.65,r));
-      vec3 color=mix(vec3(.035,.35,.36),vec3(.54,.72,.68),foam*.55);
-      float fade=(1.-smoothstep(.05,1.,r))*smoothstep(0.,.08,r);
+  vertexShader:`varying vec2 vUv; varying vec3 vWorld; varying vec2 vLocal;
+    void main(){vUv=uv;vLocal=position.xz;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
+  fragmentShader:`uniform float uTime;varying vec2 vUv;varying vec3 vWorld;varying vec2 vLocal;
+    ${waterNoise}
+    void main(){
+      float r=vUv.y;vec2 p=vLocal;float t=uTime;
+      float surfNoise=fbm(p*.65+vec2(t*.035,-t*.06));
+      float shoreDistance=r + (surfNoise-.5)*.065;
+      // Breakers travel toward the beach, dissipating instead of forming wire rings.
+      float cycle=fract(t*.105+noise21(p*.07)*.17);
+      float front=(1.-cycle)*.46;
+      float breaker=exp(-pow((shoreDistance-front)/(.012+.012*cycle),2.));
+      breaker*=sin(cycle*3.14159)*smoothstep(.27,.69,surfNoise);
+      float wash=(1.-smoothstep(.035,.13,shoreDistance))*smoothstep(.28,.67,fbm(p*2.2-vec2(t*.14)));
+      float cells=abs(noise21(p*2.8+vec2(t*.12,-t*.1))-.5);
+      float lace=1.-smoothstep(.06,.15,cells);
+      float foam=clamp(breaker*(.4+.6*lace)+wash*.65,0.,1.);
+      float caustic=pow(1.-abs(sin(p.x*2.1+sin(p.y*1.7+t*.65)) * cos(p.y*2.3+sin(p.x*1.4-t*.55))),14.);
+      vec3 shallow=mix(vec3(.085,.29,.245),vec3(.018,.19,.205),smoothstep(.02,.8,r));
+      shallow+=vec3(.11,.15,.08)*caustic*.17*(1.-r);
+      vec3 color=mix(shallow,vec3(.72,.84,.79),foam*.9);
+      float fade=(1.-smoothstep(.20,1.,r))*smoothstep(0.,.032,r);
       float fog=exp(-.000025*pow(length(cameraPosition-vWorld),2.));
-      gl_FragColor=vec4(color,fade*(.36+foam*.3)*fog);
+      gl_FragColor=vec4(color,fade*(.36+foam*.56)*fog);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
     }`
 });
-function shore(rx,rz,seed) {
-  const positions=[],uv=[],idx=[],slices=96,rings=7;
+function shore(rx,rz,seed,height) {
+  const positions=[],uv=[],idx=[],slices=128,rings=12;
   for(let j=0;j<=rings;j++) for(let i=0;i<=slices;i++) {
-    const a=i/slices*TAU,r=.91+j/rings*.44,edge=coast(a,seed);
-    positions.push(Math.cos(a)*rx*edge*r,.085,Math.sin(a)*rz*edge*r);uv.push(i/slices,j/rings);
+    const a=i/slices*TAU,edge=coast(a,seed),ux=Math.cos(a),uz=Math.sin(a);
+    // Find the actual waterline, including each island's changing elevation.
+    let lo=.45,hi=1.;
+    for(let step=0;step<12;step++){const mid=(lo+hi)*.5;if(terrainHeight(mid*ux,mid*uz,height,seed)>.045)lo=mid;else hi=mid;}
+    const r=(lo+hi)*.5+j/rings*.40;
+    positions.push(ux*rx*edge*r,.055,uz*rz*edge*r);uv.push(i/slices,j/rings);
   }
   for(let j=0;j<rings;j++)for(let i=0;i<slices;i++) {const a=j*(slices+1)+i,b=a+slices+1;idx.push(a,a+1,b,a+1,b+1,b);}
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);
-  return new T.Mesh(g,shoreMaterial);
+  const mesh=new T.Mesh(g,shoreMaterial);mesh.name='Shallow water and surf';return mesh;
 }
 function station(group,height,variant) {
   const y=height+.04;
@@ -109,7 +144,7 @@ function sky() {
     vertexShader:`varying vec3 vDir;void main(){vDir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
     fragmentShader:`varying vec3 vDir;void main(){vec3 d=normalize(vDir);float h=max(0.,d.y);
       vec3 color=mix(vec3(.25,.39,.44),vec3(.055,.17,.29),pow(h,.48));
-      float sun=max(0.,dot(d,normalize(vec3(-.55,.32,-.8))));
+      float sun=max(0.,dot(d,normalize(vec3(-32.,38.,-45.))));
       color+=vec3(.65,.49,.28)*pow(sun,20.)*.23+vec3(1.,.82,.53)*pow(sun,650.);
       float streak=sin(d.x*17.+d.z*8.+sin(d.x*25.)*.15);
       float cloud=smoothstep(.6,.98,streak)*exp(-pow((d.y-.22)*11.,2.));
@@ -120,30 +155,93 @@ function sky() {
 }
 function ocean() {
   const geometry=new T.PlaneGeometry(1400,1400,1,1);geometry.rotateX(-Math.PI/2);
-  const material=new T.ShaderMaterial({uniforms:{uTime:time,uDistance:{value:0}},
-    vertexShader:`varying vec3 vWorld;void main(){vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
-    fragmentShader:`uniform float uTime;uniform float uDistance;varying vec3 vWorld;
-      float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-      float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}
-      float waves(vec2 p,float t){return noise(p*vec2(.85,1.9)+vec2(t*.19,-t*.25))*.6+noise(p*vec2(2.1,4.2)+t*.31)*.28+noise(p*7.-t*.2)*.12;}
+  const material=new T.ShaderMaterial({uniforms:{uTime:time,uDistance:{value:0},uReflection:{value:null},uReflectionMatrix:{value:new T.Matrix4()},uReflectionReady:{value:0},uTexel:{value:new T.Vector2(1/768,1/432)},uSun:{value:COAST_SUN}},
+    vertexShader:`varying vec3 vWorld;varying vec4 vMirror;uniform mat4 uReflectionMatrix;
+      void main(){vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;vMirror=uReflectionMatrix*p;gl_Position=projectionMatrix*viewMatrix*p;}`,
+    fragmentShader:`uniform float uTime;uniform float uDistance;uniform sampler2D uReflection;uniform float uReflectionReady;
+      uniform vec2 uTexel;uniform vec3 uSun;varying vec3 vWorld;varying vec4 vMirror;
+      ${waterNoise}
+      float waves(vec2 p,float t){
+        float swell=sin(dot(p,vec2(.21,.34))+t*.65)*.25+sin(dot(p,vec2(-.37,.18))-t*.48)*.14;
+        return swell+noise21(p*vec2(.67,1.5)+vec2(t*.16,-t*.23))*.42+noise21(p*vec2(1.9,3.7)-t*.25)*.19;
+      }
       void main(){vec2 p=vWorld.xz+vec2(0.,-uDistance);float t=uTime;
         float wave=waves(p,t),a=waves(p+vec2(.12,0.),t)-wave,b=waves(p+vec2(0.,.12),t)-wave;
-        vec3 n=normalize(vec3(-a*.6,1.,-b*.6));
-        vec3 view=normalize(cameraPosition-vWorld),light=normalize(vec3(-.55,.65,-.8));
-        float fresnel=pow(1.-max(0.,dot(n,view)),4.);
-        vec3 color=mix(vec3(.018,.089,.13),vec3(.18,.32,.38),fresnel*.8);
-        color+=vec3(.025,.06,.065)*(wave*.6);
-        float gloss=pow(max(0.,dot(n,normalize(light+view))),320.);
-        color+=vec3(.85,.75,.52)*gloss*.6;
-        float dist=length(cameraPosition-vWorld);float detail=1.-smoothstep(30.,160.,dist);
-        float fine=noise(p*12.+t*.3)-.5;
-        color+=vec3(.01,.021,.025)*max(0.,fine)*detail;
+        float dist=length(cameraPosition-vWorld);
+        float detail=1.-smoothstep(55.,220.,dist);
+        vec3 n=normalize(vec3(-a*(.65+.45*detail),1.,-b*(.65+.45*detail)));
+        vec3 view=normalize(cameraPosition-vWorld),light=uSun;
+        float nv=max(.001,dot(n,view)),nl=max(.001,dot(n,light));
+        float fresnel=.0204+.9796*pow(1.-nv,5.);
+        vec3 halfVector=normalize(light+view);float nh=max(0.,dot(n,halfVector));
+        // GGX microfacet sun reflection, with distance filtering to prevent sparkle aliasing.
+        float roughness=.13+.09*(1.-detail);float alpha=roughness*roughness;
+        float alpha2=alpha*alpha;float denom=nh*nh*(alpha2-1.)+1.;
+        float D=alpha2/(3.14159265*denom*denom+.00001);
+        float k=pow(roughness+1.,2.)/8.;float Gv=nv/(nv*(1.-k)+k),Gl=nl/(nl*(1.-k)+k);
+        float F=.0204+.9796*pow(1.-max(0.,dot(halfVector,view)),5.);
+        float spec=D*Gv*Gl*F/max(.004,4.*nv*nl);
+        vec3 reflectedDirection=reflect(-view,n);
+        vec3 reflected=mix(vec3(.25,.39,.44),vec3(.065,.18,.3),pow(max(0.,reflectedDirection.y),.48));
+        vec2 uv=vMirror.xy/max(.001,vMirror.w);
+        vec2 distortion=n.xz*.10*clamp(22./max(dist,1.),.22,1.);
+        vec2 q=clamp(uv+distortion,uTexel*2.,1.-uTexel*2.);
+        float edge=smoothstep(0.,.025,uv.x)*smoothstep(0.,.025,uv.y)*(1.-smoothstep(.975,1.,uv.x))*(1.-smoothstep(.975,1.,uv.y));
+        vec2 blur=uTexel*(.7+(1.-detail)*1.3);
+        vec3 mirror=texture2D(uReflection,q).rgb*.4;
+        mirror+=(texture2D(uReflection,q+vec2(blur.x,0.)).rgb+texture2D(uReflection,q-vec2(blur.x,0.)).rgb+texture2D(uReflection,q+vec2(0.,blur.y)).rgb+texture2D(uReflection,q-vec2(0.,blur.y)).rgb)*.15;
+        reflected=mix(reflected,mirror,edge*uReflectionReady);
+        vec3 deep=vec3(.009,.057,.082)+vec3(.007,.024,.026)*wave;
+        vec3 color=mix(deep,reflected,clamp(fresnel*1.15+.12,0.,.92));
+        color+=vec3(1.,.85,.64)*min(spec,12.)*nl*2.4;
         float fog=1.-exp(-.000025*dist*dist);color=mix(color,vec3(.25,.39,.44),fog);
         gl_FragColor=vec4(color,1.);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`});
-  const mesh=new T.Mesh(geometry,material);mesh.position.y=SEA_LEVEL;return mesh;
+  const mesh=new T.Mesh(geometry,material);mesh.position.y=SEA_LEVEL;mesh.name='Reflective ocean';return mesh;
+}
+
+// A planar scene reflection, not hardware ray tracing. One capped half-size pass;
+// the main camera's projection is preserved and objects below the sea are clipped.
+function createWaterReflection(sea,shores) {
+  let target;const reflectedCamera=new T.PerspectiveCamera(),size=new T.Vector2(),direction=new T.Vector3(),look=new T.Vector3(),up=new T.Vector3();
+  const clip=[new T.Plane(new T.Vector3(0,1,0),-SEA_LEVEL-.02)];
+  const bias=new T.Matrix4().set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1);
+  const uniforms=sea.material.uniforms;
+  function render(renderer,scene,camera) {
+    if(camera.position.y<=SEA_LEVEL+.05)return;
+    renderer.getDrawingBufferSize(size);
+    const scale=Math.min(.5,960/Math.max(size.x,size.y));
+    const width=Math.max(1,Math.round(size.x*scale)),height=Math.max(1,Math.round(size.y*scale));
+    if(!target){
+      // Linear HDR stays un-tonemapped until the final water pass. Use RGBA8 if float rendering is unavailable.
+      const hdr=renderer.extensions.has('EXT_color_buffer_float');
+      target=new T.WebGLRenderTarget(width,height,{type:hdr?T.HalfFloatType:T.UnsignedByteType,depthBuffer:true,generateMipmaps:false});
+      target.texture.name='Coastal planar reflection';uniforms.uReflection.value=target.texture;
+    }
+    if(target.width!==width||target.height!==height)target.setSize(width,height);
+    uniforms.uTexel.value.set(1/width,1/height);
+    camera.updateMatrixWorld();camera.getWorldPosition(reflectedCamera.position);
+    reflectedCamera.position.y=2*SEA_LEVEL-reflectedCamera.position.y;
+    camera.getWorldDirection(direction);direction.y=-direction.y;
+    up.set(0,1,0).transformDirection(camera.matrixWorld);up.y=-up.y;
+    reflectedCamera.up.copy(up);look.copy(reflectedCamera.position).add(direction);reflectedCamera.lookAt(look);
+    reflectedCamera.near=camera.near;reflectedCamera.far=camera.far;
+    reflectedCamera.projectionMatrix.copy(camera.projectionMatrix);reflectedCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+    reflectedCamera.updateMatrixWorld();
+    uniforms.uReflectionMatrix.value.copy(bias).multiply(reflectedCamera.projectionMatrix).multiply(reflectedCamera.matrixWorldInverse);
+    const oldTarget=renderer.getRenderTarget(),oldClip=renderer.clippingPlanes,oldTone=renderer.toneMapping,oldXR=renderer.xr.enabled,oldAutoClear=renderer.autoClear;
+    sea.visible=false;for(const shore of shores)shore.visible=false;
+    try{
+      renderer.xr.enabled=false;renderer.clippingPlanes=clip;renderer.toneMapping=T.NoToneMapping;renderer.autoClear=true;
+      renderer.setRenderTarget(target);renderer.clear();renderer.render(scene,reflectedCamera);uniforms.uReflectionReady.value=1;
+    } finally {
+      sea.visible=true;for(const shore of shores)shore.visible=true;
+      renderer.setRenderTarget(oldTarget);renderer.clippingPlanes=oldClip;renderer.toneMapping=oldTone;renderer.xr.enabled=oldXR;renderer.autoClear=oldAutoClear;
+    }
+  }
+  return {render,dispose(){target?.dispose();}};
 }
 // Shared obstacle geometry: the top is y=1; the base is y=0.
 const stackGeometry=(()=>{
@@ -172,13 +270,13 @@ const scrubMaterial=new T.MeshStandardMaterial({color:0xb2bba3,roughness:1});
 export function createIslandMap(scene) {
   const root=new T.Group();root.name='Archipelago';scene.add(root);
   const sea=ocean();root.add(sea);root.add(sky());
-  const islands=[],rng=random(605032),period=576;
+  const islands=[],shores=[],rng=random(605032),period=576;
   for(let i=0;i<12;i++) {
     const rx=15+rng()*10,rz=19+rng()*14,h=6+rng()*11,seed=rng()*20,side=i%2?1:-1;
     const group=new T.Group();group.name=`Island ${i+1}`;
     // Keep shore geometry and solid land outside the player's +/-10 corridor.
     group.position.set(side*(19+rx*1.2+rng()*8),SEA_LEVEL,22-i*48);
-    group.add(new T.Mesh(islandGeometry(rx,rz,h,seed),stone));group.add(shore(rx,rz,seed));
+    group.add(new T.Mesh(islandGeometry(rx,rz,h,seed),stone));const surf=shore(rx,rz,seed,h);group.add(surf);shores.push(surf);
     if(i%3===0)station(group,terrainHeight(0,0,h,seed),i);
     // Sparse scrub follows the terrain and shares one instanced draw per island.
     const vegetation=new T.InstancedMesh(scrubGeometry,scrubMaterial,100),matrix=new T.Matrix4(),rotation=new T.Quaternion(),position=new T.Vector3(),scale=new T.Vector3();
@@ -196,5 +294,6 @@ export function createIslandMap(scene) {
     for(const island of islands) island.group.position.z=100-((100-island.startZ-distance)%period+period)%period;
   }
   update(0,0);
-  return {root,islands,update,reset:()=>update(0,0)};
+  const reflection=createWaterReflection(sea,shores);
+  return {root,islands,update,reset:()=>update(0,0),renderReflection:reflection.render,dispose:reflection.dispose};
 }
