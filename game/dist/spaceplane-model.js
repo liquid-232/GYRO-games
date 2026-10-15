@@ -1,7 +1,7 @@
 import * as T from './vendor/three.module.js';
 
 // Photo-based visual reconstruction of the Xuan Nv collectible linked by the user.
-// It is not the manufacturer's CAD. +Y up, nose -Z. Approx. length/width = 34.3/22.5.
+// It is not the manufacturer's CAD. +Y up, nose -Z. Published collectible proportions: 34.4 x 22.4 x 5.7 cm.
 // The original ORION geometry has been replaced completely.
 export function createSpaceplane() {
   const ship=new T.Group();ship.name='Xuan Nv photo reconstruction';
@@ -27,6 +27,48 @@ export function createSpaceplane() {
     const g=new T.ExtrudeGeometry(s,{depth,bevelEnabled:bevel>0,bevelSegments:1,steps:1,bevelSize:bevel,bevelThickness:bevel*.55,curveSegments:1});
     g.rotateX(-Math.PI/2).translate(0,y,0);add(g,mat);
   };
+  // Closed, curved plates with separately shaded skins and edge walls. Subdivision
+  // gives the raised wings a real airfoil instead of a tilted, constant-depth card.
+  const contoured=(points,lower,upper,mat,detail=3,foot=(x,z)=>[x,z])=>{
+    const outline=points.map(([x,z])=>new T.Vector2(x,z));
+    const faces=T.ShapeUtils.triangulateShape(outline,[]),positions=[],indices=[],cache=new Map();
+    const vertex=(p,top)=>{
+      const key=`${p[0].toFixed(6)},${p[1].toFixed(6)},${top}`;
+      if(cache.has(key))return cache.get(key);
+      const i=positions.length/3,[x,z]=top?p:foot(...p);positions.push(x,(top?upper:lower)(...p),z);cache.set(key,i);return i;
+    };
+    const triangle=(a,b,c,n)=>{
+      if(n){const ab=a.map((v,i)=>(v+b[i])/2),bc=b.map((v,i)=>(v+c[i])/2),ca=c.map((v,i)=>(v+a[i])/2);
+        triangle(a,ab,ca,n-1);triangle(ab,b,bc,n-1);triangle(ca,bc,c,n-1);triangle(ab,bc,ca,n-1);return;}
+      if((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])>0)[b,c]=[c,b];
+      indices.push(vertex(a,true),vertex(b,true),vertex(c,true),vertex(a,false),vertex(c,false),vertex(b,false));
+    };
+    for(const face of faces)triangle(...face.map(i=>points[i]),detail);
+    const skin=new T.BufferGeometry();skin.setAttribute('position',new T.Float32BufferAttribute(positions,3));skin.setIndex(indices);skin.computeVertexNormals();add(skin,mat);
+    const edge=[],clockwise=T.ShapeUtils.isClockWise(outline);
+    for(let i=0;i<points.length;i++){
+      const a=points[i],b=points[(i+1)%points.length],steps=2**detail;
+      for(let j=0;j<steps;j++){
+        const q=a.map((v,k)=>T.MathUtils.lerp(v,b[k],j/steps)),r=a.map((v,k)=>T.MathUtils.lerp(v,b[k],(j+1)/steps));
+        const v=[[q[0],lower(...q),q[1]],[r[0],lower(...r),r[1]],[r[0],upper(...r),r[1]],[q[0],upper(...q),q[1]]];
+        for(const f of clockwise?[[0,1,2],[0,2,3]]:[[0,2,1],[0,3,2]])for(const k of f)edge.push(...v[k]);
+      }
+    }
+    const wall=new T.BufferGeometry();wall.setAttribute('position',new T.Float32BufferAttribute(edge,3));wall.computeVertexNormals();add(wall,mat);
+  };
+  const wingPlan=[[1.05,1.63,2.7],[1.57,2.14,4.07],[2.22,2.78,5.66],[2.47,3.03,5.45],[2.77,2.816,5.2],[6.12,.43,1.579],[6.23,1.46,1.46]];
+  const wingSection=x=>{
+    x=Math.abs(x);let a=wingPlan[0],b=wingPlan[1];
+    for(let i=1;i<wingPlan.length;i++){b=wingPlan[i];if(x<=b[0])break;a=b;}
+    const t=T.MathUtils.clamp((x-a[0])/Math.max(.001,b[0]-a[0]),0,1);
+    return [T.MathUtils.lerp(a[1],b[1],t),T.MathUtils.lerp(a[2],b[2],t)];
+  };
+  const wingBase=(x,z)=>.39+.185*(Math.abs(x)-1.05)-.018*(z-3);
+  const wingCamber=(x,z)=>{const [front,rear]=wingSection(x);return Math.sin(Math.PI*T.MathUtils.clamp((z-front)/Math.max(.03,rear-front),0,1));};
+  const wingTop=(x,z)=>wingBase(x,z)+.018+(.195-.014*(Math.abs(x)-1.05))*Math.pow(Math.max(0,wingCamber(x,z)),.7);
+  const wingBottom=(x,z)=>wingBase(x,z)-.028*wingCamber(x,z);
+  const railBase=(x,z)=>.65-.065*Math.max(0,z-3.1);
+  const deckBase=(x,z)=>.22+.22*T.MathUtils.clamp((z-.8)/1.5,0,1)+.15*T.MathUtils.clamp((Math.abs(x)-.5)/1.8,0,1);
   const solidPanel=(points,mat,thickness=.055)=>{
     const p=points.map(v=>new T.Vector3(...v));
     const normal=p[1].clone().sub(p[0]).cross(p[2].clone().sub(p[0])).normalize();
@@ -69,16 +111,32 @@ export function createSpaceplane() {
     // Recess frame strips catch a thin silver edge around the black pocket.
     plate(pts([[1.1,-1.98],[1.16,-1.96],[2.11,.7],[2.05,.72]]),.02,.018,'pale',.008);
 
-    // Swept FORWARD outboard wings: the tips lead their roots by several units.
-    plate(pts([[1.05,1.63],[2.47,3.03],[6.12,.43],[6.23,1.46],[2.77,5.2],[2.22,5.66],[1.57,4.07]]),-.12,.19,'shell');
-    plate(pts([[2.82,3.08],[5.95,.79],[6.01,1.35],[2.9,4.58]]),.10,.018,'pale',.016);
-    plate(pts([[3.01,3.18],[5.96,1.03],[5.99,1.33],[3.02,4.33]]),.132,.008,'shell',.005);
-    plate(pts([[5.97,.54],[6.12,.43],[6.23,1.46],[6.07,1.61]]),.08,.035,'orange',.012);
-    // Raised side rails continue past the rear wing and taper into twin tail booms.
-    plate(pts([[2.33,2.82],[2.58,3.03],[2.61,5.86],[2.44,7.08],[2.22,7.18],[2.06,6.5],[2.08,4.4]]),.11,.15,'shell');
-    plate(pts([[2.3,3.3],[2.42,3.42],[2.43,6.13],[2.33,6.74],[2.2,6.34],[2.2,4.43]]),.28,.008,'pale',.006);
-    // Rear white deck: deliberate angular boundaries around black drive shields.
-    plate(pts([[.24,.81],[.76,.92],[1.65,2.32],[2.29,2.81],[2.17,4.62],[1.56,4.08],[1.11,4.45],[.62,3.93],[.32,4.22]]),.19,.14,'shell');
+    // High-mounted forward-swept wing. The continuous shoulder fairing rises
+    // from the low central body to the wing hinge; the outer wing has mild dihedral.
+    const wingOutline=pts([[1.05,1.63],[2.47,3.03],[6.12,.43],[6.23,1.46],[2.77,5.2],[2.22,5.66],[1.57,4.07]]);
+    contoured(pts([[1.02,1.63],[1.44,1.91],[2.75,3.1],[2.72,4.89],[2.27,5.22],[1.48,3.91],[1.09,3.39]]),
+      (x,z)=>-.12+.13*T.MathUtils.clamp((Math.abs(x)-1.1)/1.7,0,1),
+      (x,z)=>wingBase(x,z)+.01,'shell',3,(x,z)=>[Math.sign(x)*Math.max(.65,Math.abs(x)-.42),z-.55*T.MathUtils.clamp((4.9-z)/1.8,0,1)]);
+    contoured(wingOutline,wingBottom,wingTop,'shell');
+    const skin=(points,mat,offset=.012)=>contoured(pts(points),(x,z)=>wingTop(x,z)+offset,(x,z)=>wingTop(x,z)+offset+.006,mat);
+    skin([[2.82,3.08],[5.95,.79],[6.01,1.35],[2.9,4.58]],'pale');
+    skin([[3.01,3.18],[5.96,1.03],[5.99,1.33],[3.02,4.33]],'shell',.022);
+    contoured(pts([[5.97,.54],[6.12,.43],[6.23,1.46],[6.07,1.61]]),(x,z)=>wingBottom(x,z)-.006,(x,z)=>wingTop(x,z)+.012,'orange');
+    // Fold joint is an actual narrow inset between the inner support and outer wing.
+    skin([[2.765,2.85],[2.805,2.82],[2.84,4.96],[2.8,5.0]],'black',.009);
+    for(const z of [3.29,4.54]){
+      const x=side*2.79,y=wingTop(x,z)+.022;
+      add(new T.CylinderGeometry(.055,.055,.23,12).rotateX(Math.PI/2).translate(x,y,z),'metal');
+    }
+    // The raised tail rails descend gradually from the wing saddle, with
+    // continuous volumetric transitions instead of isolated horizontal strips.
+    contoured(pts([[2.33,2.82],[2.58,3.03],[2.61,5.86],[2.44,7.08],[2.22,7.18],[2.06,6.5],[2.08,4.4]]),
+      (x,z)=>railBase(x,z)-.14,(x,z)=>railBase(x,z)+.11,'shell');
+    contoured(pts([[2.3,3.3],[2.42,3.42],[2.43,6.13],[2.33,6.74],[2.2,6.34],[2.2,4.43]]),
+      (x,z)=>railBase(x,z)+.115,(x,z)=>railBase(x,z)+.123,'pale',2);
+    // This sloping rear deck joins the central spine and the elevated wing saddle.
+    contoured(pts([[.24,.81],[.76,.92],[1.65,2.32],[2.29,2.81],[2.17,4.62],[1.56,4.08],[1.11,4.45],[.62,3.93],[.32,4.22]]),
+      (x,z)=>deckBase(x,z)-.22,(x,z)=>deckBase(x,z)+.14,'shell');
     // The dark tail is layered, serrated and flat, not a circular rocket nozzle.
     plate(pts([[.26,4.17],[.65,3.98],[1.12,4.48],[1.58,4.12],[2.18,4.7],[2.08,6.75],[1.73,7.5],[.7,7.68],[.23,7.05]]),-.2,.17,'black');
     plate(pts([[.63,5.26],[1.52,5.7],[2.06,5.31],[2.04,5.61],[1.51,6.05],[.65,5.61]]),-.012,.012,'pale',.006);
@@ -94,14 +152,17 @@ export function createSpaceplane() {
     solidPanel(v([[1.46,-.25,5.7],[2.08,-.31,5.92],[2.05,-1.34,7.13],[1.46,-1.08,7.65],[1.05,-.39,7.18]]),'black');
     solidPanel(v([[1.6,-.53,6.17],[1.96,-.55,6.27],[1.94,-.91,6.72],[1.58,-.84,6.83]]),'pale',.008);
     solidPanel(v([[1.63,-.85,6.9],[1.94,-1.02,6.96],[1.78,-1.15,7.32],[1.55,-1.01,7.38]]),'shell',.008);
-    // Three small pyloned stores grouped under each forward-swept outer wing.
+    // Hanging stores follow the local raised wing height. Their swept pylons
+    // physically meet the lower skin, leaving a readable air gap above each body.
     for(let i=0;i<3;i++) {
-      const x=side*(3.62+i*.31),z=2.12-i*.21;
-      add(new T.CylinderGeometry(.078,.078,1.2,10).rotateX(Math.PI/2).translate(x,-.36,z),'pale');
-      add(new T.ConeGeometry(.079,.35,10).rotateX(-Math.PI/2).translate(x,-.36,z-.775),'shell');
-      add(new T.CylinderGeometry(.081,.081,.075,10).rotateX(Math.PI/2).translate(x,-.36,z-.3),'orange');
-      add(new T.BoxGeometry(.018,.3,.23).translate(x,-.36,z+.45),'metal');
-      add(new T.BoxGeometry(.28,.025,.23).translate(x,-.36,z+.45),'metal');
+      const x=side*(3.62+i*.31),z=2.12-i*.21,attachZ=z+.32;
+      const underside=wingBottom(x,attachZ),y=underside-.3;
+      solidPanel([[x,underside+.025,attachZ-.18],[x,underside+.025,attachZ+.27],[x,y+.045,attachZ+.17],[x,y+.045,attachZ-.1]],'black',.065);
+      add(new T.CylinderGeometry(.078,.078,1.2,12).rotateX(Math.PI/2).translate(x,y,z),'pale');
+      add(new T.ConeGeometry(.079,.35,12).rotateX(-Math.PI/2).translate(x,y,z-.775),'shell');
+      add(new T.CylinderGeometry(.081,.081,.075,12).rotateX(Math.PI/2).translate(x,y,z-.3),'orange');
+      add(new T.BoxGeometry(.018,.3,.23).translate(x,y,z+.45),'metal');
+      add(new T.BoxGeometry(.28,.025,.23).translate(x,y,z+.45),'metal');
     }
     // Angular charcoal underskin visible in the reference side view.
     plate(pts([[.77,-1.58],[1.84,-.12],[2.08,2.06],[1.69,3.25],[.8,3.79]]),-.42,.12,'black');
@@ -121,8 +182,12 @@ export function createSpaceplane() {
         for(let j=i;j<i+3;j++){uv[j*2]=top?(b.p[j*3]+6.6)/13.2:.001;uv[j*2+1]=top?(9-b.p[j*3+2])/18:.001;}}
       g.setAttribute('uv',new T.BufferAttribute(uv,2));mats[name].map=map;
     }
-    const mesh=new T.Mesh(g,mats[name]);mesh.name='xuannv-'+name;ship.add(mesh);
+    const mesh=new T.Mesh(g,mats[name]);mesh.name='xuannv-'+name;mesh.castShadow=true;mesh.receiveShadow=true;ship.add(mesh);
   }
+  // Match the published three-axis proportions; one model unit represents 2 cm
+  // of the collectible. Hidden structure and local angles remain photo estimates.
+  const dimensions=new T.Box3().setFromObject(ship).getSize(new T.Vector3());
+  ship.scale.set(11.2/dimensions.x,2.85/dimensions.y,17.2/dimensions.z);
   const plumes=new T.Group();plumes.name='xuannv-plumes';
   for(const side of [-1,1]) {
     const g=new T.ConeGeometry(.3,1.65,16,1,true).rotateX(Math.PI/2).scale(1,.35,1).translate(side*.87,-.35,7.85);
@@ -130,8 +195,6 @@ export function createSpaceplane() {
     plumes.add(new T.Mesh(g,m));
   }
   ship.add(plumes);
-  // Published collectible proportions: 22.4 / 34.4; preserve the long, slim planform.
-  ship.scale.x=.897;
   return ship;
 }
 
