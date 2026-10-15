@@ -48,6 +48,8 @@ python gravity-maze/server.py --open
 
 使用定制 F-22 平滑金属模型的 3D 空战小游戏，支持键盘、触屏与 **ESP32-C3 + MPU6050 蓝牙 / USB 有线体感操控**。躲避岩石、拾取金币、击毁敌机，可切换自动 / 手动开火。
 
+![苍穹突击：F-22 在群岛战区飞行，躲避礁柱并拾取补给](assets/models/tactical-flight-preview.jpg)
+
 ### 开始空战游戏
 
 Windows 双击 `game/start-game.cmd`，或桌面「苍穹突击」快捷方式。启动器优先打开 Edge / Chrome；体感模式需要支持 Web Bluetooth 的浏览器和电脑蓝牙适配器。Python 3.10+ 仅用于提供本机静态游戏文件，控制数据由浏览器直接通过 BLE 或原生 USB 串口接收。
