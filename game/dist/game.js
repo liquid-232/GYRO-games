@@ -5,6 +5,7 @@ import { parseAircraft } from './aircraft-model.js';
 import { createEnemyAircraft, ENEMY_EXTENTS } from './enemy-model.js';
 import { createEnemyMissile, animateEnemyMissile } from './missile-model.js';
 import { createIslandMap, createSeaStack } from './island-map.js';
+import { createMoraCoin } from './coin-model.js';
 const $=id=>document.getElementById(id), clamp=T.MathUtils.clamp;
 let renderer;
 try{renderer=new T.WebGLRenderer({canvas:$('scene'),antialias:true,powerPreference:'high-performance'});}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='无法启动 3D 场景，请启用浏览器硬件加速后刷新。';throw e;}
@@ -27,8 +28,8 @@ const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause(
 }});
 function permitFlight(){if(gyro.canFly)return true;notice(gyro.pauseMessage);return false;}
 const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};
-const materials={coin:new T.MeshStandardMaterial({color:0xffd16b,metalness:.85,roughness:.2,emissive:0x805015,emissiveIntensity:.5}),laser:new T.MeshBasicMaterial({color:0xaaffdf})};
-const geo={coin:new T.TorusGeometry(.56,.15,6,14),shot:new T.CylinderGeometry(.06,.06,1.5,5),particle:new T.OctahedronGeometry(.14)};
+const materials={laser:new T.MeshBasicMaterial({color:0xaaffdf})};
+const geo={shot:new T.CylinderGeometry(.06,.06,1.5,5),particle:new T.OctahedronGeometry(.14)};
 const islandMap=createIslandMap(scene);
 
 let audio;function tone(freq,dur,type='sine',vol=.025){if(muted)return;try{audio??=new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,audio.currentTime);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*.45),audio.currentTime+dur);g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur);}catch{}}
@@ -36,7 +37,7 @@ function notice(text){$('notice').textContent=text;$('notice').style.opacity=1;n
 function clearList(list){for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
 function reset(){if(!permitFlight())return;for(const list of [objects,shots,hostile,effects])clearList(list);hp=5;score=coins=kills=distance=elapsed=0;islandMap.reset();level=1;speed=26;invuln=2;spawnTimer=.8;shotTimer=0;shake=0;player.x=0;player.y=5;keys.clear();touch.x=touch.y=0;touch.fire=false;mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;aircraft.visible=true;aircraft.scale.setScalar(.24);aircraft.rotation.set(0,0,0);camera.position.set(0,11,22);$('hitflash').style.opacity=0;for(let i=0;i<7;i++)addCoin(Math.sin(i*.4)*.5,5,-28-i*3);addRock(-6,5,-57,1.8);addEnemy(0,5,-90);notice('进入群岛战区 · 沿金币航线穿越礁柱');updateHUD();tone(600,.2);}
 function updateHUD(){$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(1600+player.y*160);}
-function end(){mode='over';document.body.classList.remove('playing');$('pause').disabled=true;const newBest=score>best;best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}$('best').textContent=String(best).padStart(6,'0');$('report').innerHTML=`任务得分 <b>${Math.floor(score)}</b><br>拾取金币 <b>${coins}</b><br>击毁目标 <b>${kills}</b><br>飞行距离 <b>${(distance/1000).toFixed(2)} km</b><br>${newBest?'新纪录':'历史最佳'} <b>${best}</b>`;$('endOverlay').classList.remove('hidden');tone(100,.6,'sawtooth',.045);}
+function end(){mode='over';document.body.classList.remove('playing');$('pause').disabled=true;const newBest=score>best;best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}$('best').textContent=String(best).padStart(6,'0');$('report').innerHTML=`任务得分 <b>${Math.floor(score)}</b><br>拾取摩拉 <b>${coins}</b><br>击毁目标 <b>${kills}</b><br>飞行距离 <b>${(distance/1000).toFixed(2)} km</b><br>${newBest?'新纪录':'历史最佳'} <b>${best}</b>`;$('endOverlay').classList.remove('hidden');tone(100,.6,'sawtooth',.045);}
 function pause(){if(mode==='playing'){$('pauseReason').textContent='准备好后继续任务。';mode='paused';keys.clear();touch.fire=false;touch.x=touch.y=0;$('thumb').style.transform='';$('pauseOverlay').classList.remove('hidden');document.body.classList.remove('playing');}else if(mode==='paused'){if(!permitFlight()){$('pauseReason').textContent=gyro.pauseMessage;return;}mode='playing';$('pauseOverlay').classList.add('hidden');document.body.classList.add('playing');}}
 function returnLobby(){
  if(mode!=='paused')return;
@@ -56,7 +57,7 @@ function returnLobby(){
 function toggleFire(){autoFire=!autoFire;$('fireMode').innerHTML=`${autoFire?'自动开火':'手动开火'} <span>${autoFire?'ON':'SPACE'}</span>`;$('fireMode').setAttribute('aria-pressed',autoFire);}
 function particleBurst(pos,color,count=16){for(let i=0;i<count;i++){const mat=new T.MeshBasicMaterial({color,transparent:true});const mesh=new T.Mesh(geo.particle,mat);mesh.position.copy(pos);world.add(mesh);effects.push({mesh,ownedMaterial:true,life:.5+Math.random()*.4,vel:new T.Vector3((Math.random()-.5)*12,(Math.random()-.5)*10,(Math.random()-.5)*12)});}}
 function damage(){if(invuln>0||mode!=='playing')return;hp--;invuln=1.7;shake=.4;tone(80,.25,'sawtooth',.08);particleBurst(new T.Vector3(player.x,player.y,player.z),0xffa765,10);notice(hp<=2?'机体受损 · 注意闪避':'受到撞击 · 护盾恢复中');if(hp<=0){end();updateHUD();}}
-function addCoin(x,y,z){const mesh=new T.Mesh(geo.coin,materials.coin);mesh.position.set(x,y,z);world.add(mesh);objects.push({type:'coin',mesh,r:.9});}
+function addCoin(x,y,z){const mesh=createMoraCoin();mesh.position.set(x,y,z);world.add(mesh);objects.push({type:'coin',mesh,r:.9});}
 function addRock(x,y,z,r=1.8){const stack=createSeaStack(x,y,z,r);world.add(stack.mesh);objects.push({type:'rock',...stack});}
 function rockHeightHit(o,y,padding=0){return y>o.bottom-padding&&y<o.top+padding;}
 function addEnemy(x,y,z){const mesh=createEnemyAircraft();mesh.position.set(x,y,z);world.add(mesh);objects.push({type:'enemy',mesh,r:1.15,hit:ENEMY_EXTENTS,hp:3+Math.min(3,level-1),baseX:x,phase:Math.random()*6.28,fire:2+Math.random()*2});}
