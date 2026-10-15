@@ -1,3 +1,4 @@
+import {createRoomScene} from './room-scene.js';
 import {createDeskScene} from './desk-scene.js';
 import {createSphereLevel,stepSphere,spherePoint,surfaceDistance} from './sphere-physics.js';
 import {createSphereModel} from './sphere-model.js';
@@ -25,12 +26,13 @@ renderer.setClearColor(0x102e33);renderer.outputColorSpace=T.SRGBColorSpace;
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
 renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=.96;
 renderer.transmissionResolutionScale=1;
-const scene=new T.Scene(),camera=new T.OrthographicCamera(-8,8,8,-8,.1,100);camera.position.set(0,19,10);camera.lookAt(0,0,0);
-// 中性棚拍主光保留塑料原色，侧后方补光突出透明壳与钢珠的弧面。
+const scene=new T.Scene(),flatCamera=new T.OrthographicCamera(-8,8,8,-8,.1,100),toyCamera=new T.PerspectiveCamera(34,1,.1,180);
+let camera=flatCamera;camera.position.set(0,19,10);camera.lookAt(0,0,0);
+// 侧后方窗口日光在桌面与远处家具上投影，室内暖色补光保留球壳和钢珠细节。
 scene.add(new T.HemisphereLight(0xf7f3e9,0x877159,.8));
-const light=new T.DirectionalLight(0xffefd7,2.7);light.position.set(-9,18,12);light.castShadow=true;
+const light=new T.DirectionalLight(0xffefd7,2.7);light.position.set(-20,18,-17);light.target.position.set(0,-5,-2);scene.add(light.target);light.castShadow=true;
 const shadowSize=Math.min(4096,renderer.capabilities.maxTextureSize);light.shadow.mapSize.set(shadowSize,shadowSize);
-Object.assign(light.shadow.camera,{left:-18,right:18,top:18,bottom:-18,near:.5,far:65});
+Object.assign(light.shadow.camera,{left:-29,right:29,top:29,bottom:-29,near:.5,far:105});
 light.shadow.bias=-.00015;light.shadow.normalBias=.018;scene.add(light);
 const rim=new T.DirectionalLight(0xe2eeff,1.25);rim.position.set(8,4,-8);scene.add(rim);
 const fill=new T.DirectionalLight(0xe5eeff,.55);fill.position.set(0,-5,8);scene.add(fill);
@@ -46,11 +48,11 @@ for(const [position,width,height,color,intensity] of [
 const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment,0,.1,100,{size:512});
 scene.environment=env.texture;scene.environmentIntensity=.7;pmrem.dispose();
 for(const panel of environment.children){panel.geometry.dispose();panel.material.dispose();}
-const desk=createDeskScene();scene.add(desk);
+const desk=createDeskScene(),room=createRoomScene();scene.add(desk,room);
 const maxAnisotropy=renderer.capabilities.getMaxAnisotropy();
-desk.traverse(o=>{for(const key of ['map','bumpMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
+for(const backdrop of [desk,room])backdrop.traverse(o=>{for(const key of ['map','bumpMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
 let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
-const deskCamera=new T.Vector3(0,11,21),deskFocus=new T.Vector3(0,-.35,0);
+const deskCamera=new T.Vector3(8,10,24),deskFocus=new T.Vector3(0,-.35,0);
 const fixedNormal=deskCamera.clone().sub(deskFocus).normalize(),fixedNorth=new T.Vector3(0,1,0).addScaledVector(fixedNormal,-fixedNormal.y).normalize();
 const fixedFrame=new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(fixedNorth.clone().cross(fixedNormal).normalize(),fixedNorth,fixedNormal));
 // 相机固定在木桌前，转动整个玩具，让当前滚球仍朝向玩家，木桌和周围玩具不会翻转。
@@ -63,7 +65,7 @@ function orientToy(dt=0){
 }
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
- scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=isOrb();document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
+ scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=room.visible=isOrb();camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
  $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'球体随路线转动 · 星星存档 · 窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
  [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){camera.position.copy(deskCamera);camera.lookAt(deskFocus);orientToy();}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
@@ -103,9 +105,13 @@ window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea
 for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);touch.x=Number(b.dataset.x);touch.y=Number(b.dataset.y);};b.onpointerup=b.onpointercancel=()=>{touch.x=touch.y=0;};}
 function resize(){
  const r=$('boardViewport').getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height),aspect=width/height;
- // 全景展示木桌环境，近看放大迷宫；窄屏按宽度适配。
- const half=isOrb()?(closeView?6.2:7.8):(level?.size||9)*.57;
- camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();
+ // 球模式使用真实透视：近处玩具更大、远处家具更小，窄屏仍保留完整球壳。
+ const half=isOrb()?(closeView?6.4:8.4):(level?.size||9)*.57;
+ if(isOrb()){
+  camera.aspect=aspect;
+  camera.fov=T.MathUtils.radToDeg(2*Math.atan(half*Math.max(1,1/aspect)/camera.position.distanceTo(deskFocus)));
+ }else{camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;}
+ camera.updateProjectionMatrix();
  // 超清默认 2 倍采样，最高 3 倍；大屏仍至少保持原生像素，避免 4MP 上限造成缩小后放大。
  const ultra=renderQuality==='ultra',targetRatio=Math.min(ultra?3:2,Math.max(ultra?2:1.25,window.devicePixelRatio||1));
  const budgetRatio=Math.sqrt((ultra?14000000:5000000)/(width*height));
@@ -137,4 +143,5 @@ let previous=performance.now();function frame(now){requestAnimationFrame(frame);
  starMeshes.forEach((m,i)=>{if(isOrb()){m.quaternion.copy(m.userData.baseQuaternion);m.rotateZ(now*.001+i);}else{m.rotation.y=now*.001+i;m.position.y=.37+Math.sin(now*.002+i)*.05;}});renderer.render(scene,camera);
 }
 buildLevels();loadLevel(0);requestAnimationFrame(frame);
-window.addEventListener('pagehide',()=>{disposeMazeModel(board);disposeMazeModel(desk);renderer.dispose();env.dispose();});
+// 浏览器缓存整页时保留 WebGL 资源，返回页面后继续显示房间。
+window.addEventListener('pagehide',event=>{if(event.persisted)return;disposeMazeModel(board);disposeMazeModel(desk);disposeMazeModel(room);renderer.dispose();env.dispose();});

@@ -62,11 +62,11 @@ export function createDeskScene(){
  const box=(w,h,d,r,material,pos,rot=[0,0,0],parent=root)=>add(roundedBox(w,h,d,r),material,pos,rot,parent);
  const cylinder=(radius,height,material,pos,rot=[0,0,0],parent=root,top=radius)=>add(new T.CylinderGeometry(top,radius,height,48,1),material,pos,rot,parent);
  // 台面 UV 以实际平面投射，2048 像素纹理保留木板接缝和细小木纹。
- const tabletop=roundedBox(48,.9,38,.3),p=tabletop.attributes.position,uv=tabletop.attributes.uv;
- for(let i=0;i<p.count;i++)uv.setXY(i,(p.getX(i)+24)/48,(p.getZ(i)+19)/38);
+ const tabletop=roundedBox(40,.9,32,.3),p=tabletop.attributes.position,uv=tabletop.attributes.uv;
+ for(let i=0;i<p.count;i++)uv.setXY(i,(p.getX(i)+20)/40,(p.getZ(i)+16)/32);
  const table=add(tabletop,m.wood,[0,TABLE_Y-.45,0]);table.castShadow=false;
- box(42,1,1.0,.12,m.natural,[0,TABLE_Y-1.2,-16.5]);
- for(const x of [-20,20])for(const z of [-15,15])box(1.35,9,1.35,.14,m.natural,[x,TABLE_Y-5.1,z]);
+ box(34,1,1.0,.12,m.natural,[0,TABLE_Y-1.2,-13.5]);
+ for(const x of [-16,16])for(const z of [-12,12])box(1.35,8.3,1.35,.14,m.natural,[x,TABLE_Y-4.7,z]);
  // 实体玩具座：底盘贴桌，圆环在球体下部形成清晰接触关系。
  cylinder(1.5,.13,m.violet,[0,TABLE_Y+.065,0]);
  add(new T.TorusGeometry(1.14,.105,20,128),m.violet,[0,-5.53,0],[Math.PI/2,0,0]);
