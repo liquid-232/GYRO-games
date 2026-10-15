@@ -114,8 +114,9 @@ async def measure(args):
             ble.setdefault(key, (received_ns, payload))
 
     worker = None
+    # 完整发现服务，兼容部分 Windows 蓝牙栈拒绝按 UUID 筛选服务的情况。
     try:
-        async with BleakClient(device, services=[SERVICE], timeout=30,
+        async with BleakClient(device, timeout=30,
                                winrt={'use_cached_services': False}) as client:
             await client.start_notify(MOTION, receive_ble)
             worker = threading.Thread(target=read_usb, daemon=True)
