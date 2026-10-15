@@ -149,6 +149,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--open', action='store_true')
+    parser.add_argument('--page', choices=('index.html', 'maze.html'), default='index.html')
     parser.add_argument('--auto-close', action='store_true', help='Exit after all game pages close (also enabled by --open)')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
@@ -169,7 +170,7 @@ def main():
     url = f'http://127.0.0.1:{server.server_port}/'
     print(f'GYRO Bluetooth Skystrike: {url}\nClose all game pages to stop automatically. Ctrl+C also quits.' if server.lifecycle.enabled else f'GYRO Bluetooth Skystrike: {url}\nCtrl+C to quit.', flush=True)
     if args.open:
-        open_game(url)
+        open_game(url + args.page)
     try:
         server.serve_forever(poll_interval=.1)
     except KeyboardInterrupt:
