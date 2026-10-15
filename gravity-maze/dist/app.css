@@ -10,9 +10,15 @@
 /* 更大的玩具展示区；全屏后按 Esc 返回，画布按新尺寸重新采样。 */
 .arena-actions{display:flex;gap:8px}.arena-actions button{padding:10px 12px}#boardViewport{height:clamp(420px,58vh,820px)}#boardViewport:fullscreen{width:100vw;height:100vh;max-height:none;border-radius:0;background:#102e33}#boardViewport:fullscreen .board-top{top:25px;font-size:12px}#boardViewport:fullscreen .board-caption{bottom:24px;font-size:13px}@media(max-width:900px){.arena-actions{gap:5px}.arena-actions button{padding:9px;font-size:10px}#boardViewport{height:56vh;min-height:360px}}
 
-#boardViewport:fullscreen .board-top>span:last-child::after{content:" / ESC 返回"}
+
 
 #boardViewport:fullscreen #pad{position:absolute;bottom:55px;right:25px}
 
 /* 木桌日光场景：叠加文字使用暖白底，细节缩放和画质可直接选择。 */
 .quality-setting{display:flex;align-items:center;gap:5px;font-size:11px;color:#6b7466}.quality-setting select{font:inherit;padding:8px 5px;border:1px solid #cbd1c2;background:#faf8f0;border-radius:8px;color:#334d42}.arena-actions{align-items:center}.arena-actions button{white-space:nowrap}#boardViewport{height:clamp(480px,62vh,900px)}.toy-room .board-top{color:#615441}.toy-room .board-top>span{background:#fff8e6da;padding:6px 9px;border-radius:5px}.toy-room .board-caption{color:#4c463b;background:#fff9e9df;left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:90%;padding:7px 12px;border-radius:6px;letter-spacing:.3px}.toy-room #boardViewport{background:#d5b68d}.toy-room #boardViewport:fullscreen{height:100vh}.toy-room .board-top{letter-spacing:1px}@media(max-width:900px){.arena-heading{flex-wrap:wrap;gap:12px}.arena-actions{margin-left:auto}.quality-setting{font-size:10px}#boardViewport{height:60vh;min-height:420px}}
+
+/* 全屏退出入口留在画布内部；无论鼠标、触屏还是键盘都能返回窗口继续游戏。 */
+.fullscreen-exit{display:none;position:absolute;top:max(18px,env(safe-area-inset-top));right:max(20px,env(safe-area-inset-right));z-index:12;align-items:center;gap:9px;min-height:44px;padding:10px 14px;border:1px solid #fff8e7b8;border-radius:12px;background:#f8f3e8f2;color:#244742;box-shadow:0 4px 18px #162b2338;font-size:13px;font-weight:600;line-height:1.3;touch-action:manipulation}
+.fullscreen-exit:hover{background:#fffaf0;box-shadow:0 5px 22px #162b2348}.fullscreen-exit:focus-visible{outline:3px solid #e59c60;outline-offset:4px}.fullscreen-exit>span:first-child{font-size:20px;line-height:1}.fullscreen-exit kbd{color:#52675d;border-color:#bdc9bc;background:#e7ece1;font-size:10px}
+#boardViewport:fullscreen .fullscreen-exit:not([hidden]){display:inline-flex}#boardViewport:fullscreen .board-top{right:220px}#boardViewport:fullscreen .board-top>span:last-child{display:none}
+@media(max-width:480px){.fullscreen-exit{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));gap:6px;padding:10px 11px;font-size:12px}#boardViewport:fullscreen .board-top{left:15px;right:180px;font-size:9px;letter-spacing:.3px}#boardViewport:fullscreen .board-top>span{padding:6px}}

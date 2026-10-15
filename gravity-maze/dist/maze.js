@@ -1,3 +1,5 @@
+import {createRenderBudget} from './render-budget.js';
+import {createFullscreenControls} from './fullscreen-ui.js';
 import {createRoomLighting} from './room-lighting.js';
 import {createRoomScene} from './room-scene.js';
 import {createDeskScene} from './desk-scene.js';
@@ -12,25 +14,28 @@ let family='sphere',checkpoint=null,mode='menu',index=0,level,ball,elapsed=0,fal
 const names=['01 / 初识重力','02 / 曲径寻星','03 / 精密穿行'],orbNames=['01 / 环绕初航','02 / 起伏回廊','03 / 极限窄桥'];
 const isOrb=()=>level?.kind==='sphere';
 let closeView=false;
-let renderQuality='ultra';try{renderQuality=localStorage.getItem('gravity-maze-quality')==='balanced'?'balanced':'ultra';}catch{}
+let renderQuality='auto';try{const saved=localStorage.getItem('gravity-maze-quality');if(['auto','balanced','ultra'].includes(saved))renderQuality=saved;}catch{}
+const renderBudget=createRenderBudget(renderQuality);
+let frameId=0,idleTimer=0,renderDirty=true,disposed=false,previous=performance.now(),lastRender=-Infinity,lastPresented=-Infinity,lastHud=-Infinity;
+let canvasWidth=0,canvasHeight=0,canvasRatio=0;
 const recordKey=()=>`gravity-maze-best-${family==='sphere'?'sphere-v1-':''}${index}`;
 const gyro=new GyroController({onInterrupt:message=>pause(message),onNoseDirection:d=>poseView?.setNoseDirection(d),onPanelVisibility:visible=>{
   if(poseView){poseView.setVisible(visible);return;}if(!visible||poseLoad)return;
   poseLoad=import('./gyro-view.js').then(({GyroPoseView})=>{poseView=new GyroPoseView($('gyroModel'),gyro);poseView.setVisible(gyro.selected&&!$('gyroPanel').classList.contains('hidden'));}).catch(()=>{$('gyroModelState').textContent='姿态预览不可用';poseLoad=null;});
 }});
 // 复用空战的硬件协议、校准与断流保护；为本游戏提供对应的界面文字。
-const renderStatus=gyro.renderStatus.bind(gyro);gyro.renderStatus=()=>{renderStatus();$('gyroTitle').textContent=`${gyro.linkName}体感滚球`;$('controlHint').textContent='倾斜控制方向';$('gyroGuide').innerHTML=$('gyroGuide').innerHTML.replaceAll('飞行','挑战');};
+const renderStatus=gyro.renderStatus.bind(gyro);gyro.renderStatus=()=>{if(document.hidden)return;renderStatus();$('gyroTitle').textContent=`${gyro.linkName}体感滚球`;$('controlHint').textContent='倾斜控制方向';if($('gyroGuide').innerHTML.includes('飞行'))$('gyroGuide').innerHTML=$('gyroGuide').innerHTML.replaceAll('飞行','挑战');};
 $('gyroPanel').querySelector('.gyro-footnote').textContent='设置中位后关闭面板，点击开始或继续挑战。选择控制器的前进方向，可调整操控轴。';
 // 抗锯齿配合超采样，让透明球壳轮廓和远处的细轨道保持清晰。
 const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true,powerPreference:'high-performance'});
 renderer.setClearColor(0x102e33);renderer.outputColorSpace=T.SRGBColorSpace;
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+renderer.shadowMap.enabled=true;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.type=T.PCFSoftShadowMap;
 renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=.96;
 renderer.transmissionResolutionScale=1;
 const scene=new T.Scene(),flatCamera=new T.OrthographicCamera(-8,8,8,-8,.1,100),toyCamera=new T.PerspectiveCamera(34,1,.1,180);
 let camera=flatCamera;camera.position.set(0,19,10);camera.lookAt(0,0,0);
 // 分离环境亮度与窗边主光，让背景保留深浅层次。
-const lighting=createRoomLighting(renderer);scene.add(lighting.group);
+const lighting=createRoomLighting(renderer);scene.add(lighting.group);lighting.setQuality(renderQuality);
 // 窗口与室内补光倒影，呼应木桌上的自然日光。
 const environment=new T.Scene();environment.background=new T.Color(0x474b50);
 for(const [position,width,height,color,intensity] of [
@@ -45,34 +50,38 @@ scene.environment=env.texture;scene.environmentIntensity=.5;pmrem.dispose();
 for(const panel of environment.children){panel.geometry.dispose();panel.material.dispose();}
 const desk=createDeskScene(),room=createRoomScene();scene.add(desk,room);
 const maxAnisotropy=renderer.capabilities.getMaxAnisotropy();
-for(const backdrop of [desk,room])backdrop.traverse(o=>{for(const key of ['map','bumpMap','roughnessMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(16,maxAnisotropy);});
+// 背景一直固定，烘焙矩阵后不再每帧遍历重算局部/世界变换。
+for(const backdrop of [desk,room]){backdrop.updateMatrixWorld(true);backdrop.traverse(o=>{o.matrixAutoUpdate=false;o.matrixWorldAutoUpdate=false;for(const key of ['map','bumpMap','roughnessMap'])if(o.material?.[key])o.material[key].anisotropy=Math.min(8,maxAnisotropy);});}
 let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
 const deskCamera=new T.Vector3(8,10,24),deskFocus=new T.Vector3(0,-.35,0);
 const fixedNormal=deskCamera.clone().sub(deskFocus).normalize(),fixedNorth=new T.Vector3(0,1,0).addScaledVector(fixedNormal,-fixedNormal.y).normalize();
 const fixedFrame=new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(fixedNorth.clone().cross(fixedNormal).normalize(),fixedNorth,fixedNormal));
 // 相机固定在木桌前，转动整个玩具，让当前滚球仍朝向玩家，木桌和周围玩具不会翻转。
+const poseNormal=new T.Vector3(),poseNorth=new T.Vector3(),poseEast=new T.Vector3(),poseMatrix=new T.Matrix4(),poseFrame=new T.Quaternion(),poseTarget=new T.Quaternion();
 function orientToy(dt=0){
- const normal=new T.Vector3(...spherePoint(level,ball.x,ball.z)).normalize(),north=new T.Vector3(0,1,0).addScaledVector(normal,-normal.y).normalize();
- const frame=new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(north.clone().cross(normal).normalize(),north,normal));
- const target=fixedFrame.clone().multiply(frame.invert());
- if(dt)board.quaternion.slerp(target,1-Math.exp(-8*dt));else board.quaternion.copy(target);
+ poseNormal.set(...spherePoint(level,ball.x,ball.z)).normalize();poseNorth.set(0,1,0).addScaledVector(poseNormal,-poseNormal.y).normalize();
+ poseEast.crossVectors(poseNorth,poseNormal).normalize();poseMatrix.makeBasis(poseEast,poseNorth,poseNormal);poseFrame.setFromRotationMatrix(poseMatrix);
+ poseTarget.copy(fixedFrame).multiply(poseFrame.invert());
+ if(dt)board.quaternion.slerp(poseTarget,1-Math.exp(-8*dt));else board.quaternion.copy(poseTarget);
  board.position.set(0,0,0);
 }
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
- scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);desk.visible=room.visible=isOrb();lighting.setRoomMode(isOrb());scene.environmentIntensity=isOrb()?.5:.7;camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
+ scene.remove(board);disposeMazeModel(board);({board,sphere,starMeshes,exitRing}=(isOrb()?createSphereModel(level):createMazeModel(level)));scene.add(board);starMeshes.forEach(m=>{m.castShadow=false;});const animated=new Set([sphere,exitRing,...starMeshes]);board.traverse(o=>{if(o!==board&&!animated.has(o)){o.updateMatrix();o.matrixAutoUpdate=false;}});desk.visible=room.visible=isOrb();lighting.setRoomMode(isOrb());scene.environmentIntensity=isOrb()?.5:.7;camera=isOrb()?toyCamera:flatCamera;document.body.classList.toggle('toy-room',isOrb());renderer.setClearColor(isOrb()?0xe8d9bd:0x102e33);
  $('levelName').textContent=(isOrb()?orbNames:names)[i]+' / 收集星星 → 抵达终点';$('familyTitle').textContent=isOrb()?'立体迷宫球':'经典平面迷宫';$('orbHelp').textContent=isOrb()?'球体随路线转动 · 星星存档 · 窄桥放慢速度':'绕开红色陷阱 · 收齐三颗星星';$('mazeModal').classList.add('hidden');$('mazePause').disabled=true;$('mazeStart').textContent='开始挑战 ↗';$('mazeMessage').textContent=isOrb()?'倾斜控制球面上的滚球；收集星星会保存检查点。':'收齐三颗星星，抵达终点。连接体感或用键盘开始。';
  [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){camera.position.copy(deskCamera);camera.lookAt(deskFocus);orientToy();}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
-function hud(){$('timer').textContent=`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`;$('stars').textContent=`${collected.size} / 3`;$('falls').textContent=falls;}
+// 计时文字只显示十分之一秒；相同数值不重复写 DOM。
+const hudNodes={timer:$('timer'),stars:$('stars'),falls:$('falls')},hudValues={};
+function hud(){const values={timer:`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`,stars:`${collected.size} / 3`,falls:String(falls)};for(const key in values)if(hudValues[key]!==values[key]){hudNodes[key].textContent=values[key];hudValues[key]=values[key];}}
 // 暂停、结算和连接设置位于画布外，显示前先退出全屏，确保面板可见。
 function leaveFullscreenForPanel(){
- if(document.fullscreenElement===$('boardViewport'))document.exitFullscreen().catch(()=>{$('mazeMessage').textContent='请按 Esc 退出全屏以查看面板。';});
+ if(document.fullscreenElement===$('boardViewport'))void fullscreen.exit();
 }
 function permit(){if(gyro.canFly)return true;leaveFullscreenForPanel();$('mazeMessage').textContent=gyro.pauseMessage;$('modalText').textContent=gyro.pauseMessage;if($('gyroPanel').classList.contains('hidden'))$('gyroToggle').click();return false;}
-function start(){if(!permit())return;document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';accumulator=0;$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent=isOrb()?'球面模式：沿通道轻缓倾斜，窄桥上可按空格刹车。':'轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
-function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;leaveFullscreenForPanel();mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');}
-function win(){leaveFullscreenForPanel();mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(recordKey()));if(!old||elapsed<old.time)localStorage.setItem(recordKey(),JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');}
+function start(){if(!permit())return;void fullscreen.enter();document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';starMeshes.forEach(m=>{m.castShadow=true;});lighting.invalidate();accumulator=0;previous=performance.now();renderBudget.suspend(previous);invalidateFrame();$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent=isOrb()?'球面模式：沿通道轻缓倾斜，窄桥上可按空格刹车。':'轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
+function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;leaveFullscreenForPanel();mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');hud();invalidateFrame();}
+function win(){leaveFullscreenForPanel();mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(recordKey()));if(!old||elapsed<old.time)localStorage.setItem(recordKey(),JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');hud();invalidateFrame();}
 function buildLevels(){
  $('levels').replaceChildren();
  for(let i=0;i<3;i++){const b=document.createElement('button');b.innerHTML=`<span class=level-number>0${i+1}</span><span><b>${(family==='sphere'?['环绕初航','起伏回廊','极限窄桥']:['初识重力','曲径寻星','精密穿行'])[i]}</b><small>${(family==='sphere'?['入门 · 球面探索','进阶 · 坡道 / 宽桥','专家 · 窄桥 / 惯性']:['入门 · 9 × 9','进阶 · 11 × 11','挑战 · 13 × 13'])[i]}</small></span><span class=level-arrow>↗</span>`;b.onclick=()=>loadLevel(i);$('levels').append(b);}
@@ -80,23 +89,12 @@ function buildLevels(){
 for(const button of document.querySelectorAll('[data-family]'))button.onclick=()=>{family=button.dataset.family;document.querySelectorAll('[data-family]').forEach(b=>b.setAttribute('aria-pressed',b===button));buildLevels();loadLevel(0);};
 $('mazeStart').onclick=()=>{if(mode==='playing')pause();else start();};$('keyboardStart').onclick=()=>{$('controlMode').value='keyboard';$('controlMode').onchange();start();};
 $('mazePause').onclick=()=>mode==='playing'?pause():start();$('continue').onclick=()=>{if(mode==='won')loadLevel((index+1)%3);start();};$('retry').onclick=()=>{loadLevel(index);start();};$('mazeLobby').onclick=()=>loadLevel(index);
-// 全屏使用浏览器原生接口，异常只显示提示，不影响当前挑战状态。
-$('mazeExpand').onclick=async()=>{
- $('mazeExpand').blur();
- try{
-  if(document.fullscreenElement===$('boardViewport'))await document.exitFullscreen();
-  else if($('boardViewport').requestFullscreen)await $('boardViewport').requestFullscreen();
-  else $('mazeMessage').textContent='当前浏览器不支持全屏，请使用浏览器缩放扩大游戏画面。';
- }catch{$('mazeMessage').textContent='浏览器暂未允许进入全屏，请再次点击全屏按钮。';}
-};
-document.addEventListener('fullscreenchange',()=>{
- const expanded=document.fullscreenElement===$('boardViewport');
- $('mazeExpand').textContent=expanded?'退出全屏 ↙':'全屏查看 ⛶';$('mazeExpand').setAttribute('aria-pressed',String(expanded));resize();
-});
+// 从开始/继续按钮的同一次点击进入全屏，右上角按钮可直接返回窗口。
+const fullscreen=createFullscreenControls({viewport:$('boardViewport'),enterButton:$('mazeExpand'),exitButton:$('mazeFullscreenExit'),onChange:expanded=>{if(expanded&&(mode==='paused'||mode==='won'))void fullscreen.exit();renderBudget.suspend(performance.now());resize();},onError:message=>{$('mazeMessage').textContent=message;}});
 $('mazeDetail').onclick=()=>{closeView=!closeView;$('mazeDetail').textContent=closeView?'查看全景':'近看模型';$('mazeDetail').setAttribute('aria-pressed',String(closeView));$('mazeDetail').blur();resize();};
 $('renderQuality').value=renderQuality;
-$('renderQuality').onchange=()=>{renderQuality=$('renderQuality').value;try{localStorage.setItem('gravity-maze-quality',renderQuality);}catch{}resize();$('renderQuality').blur();};
-window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel,button'))return;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat){if(mode==='playing')pause();else if(mode==='paused')start();}return;}if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>pause());document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+$('renderQuality').onchange=()=>{renderQuality=$('renderQuality').value;renderBudget.setQuality(renderQuality);renderBudget.suspend(performance.now());lighting.setQuality(renderQuality);try{localStorage.setItem('gravity-maze-quality',renderQuality);}catch{}resize();$('renderQuality').blur();};
+window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel,button'))return;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='Escape'&&(fullscreen.isFullscreen||fullscreen.isTransitioning)){if(!e.repeat)void fullscreen.exit();return;}if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat){if(mode==='playing')pause();else if(mode==='paused')start();}return;}if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{if(!fullscreen.isTransitioning)pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden){pause();stopFrames();}else{previous=performance.now();renderBudget.suspend(previous);invalidateFrame();}});
 for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);touch.x=Number(b.dataset.x);touch.y=Number(b.dataset.y);};b.onpointerup=b.onpointercancel=()=>{touch.x=touch.y=0;};}
 function resize(){
  const r=$('boardViewport').getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height),aspect=width/height;
@@ -107,12 +105,25 @@ function resize(){
   camera.fov=T.MathUtils.radToDeg(2*Math.atan(half*Math.max(1,1/aspect)/camera.position.distanceTo(deskFocus)));
  }else{camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;}
  camera.updateProjectionMatrix();
- // 超清默认 2 倍采样，最高 3 倍；大屏仍至少保持原生像素，避免 4MP 上限造成缩小后放大。
- const ultra=renderQuality==='ultra',targetRatio=Math.min(ultra?3:2,Math.max(ultra?2:1.25,window.devicePixelRatio||1));
- const budgetRatio=Math.sqrt((ultra?14000000:5000000)/(width*height));
- renderer.setPixelRatio(Math.max(1,Math.min(targetRatio,budgetRatio)));renderer.setSize(width,height,false);
-}new ResizeObserver(resize).observe($('boardViewport'));
-let previous=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min(.05,Math.max(0,(now-previous)/1000));previous=now;
+ // 自动档按帧间隔调整像素预算，静态模型与物理精度不变。
+ const ratio=renderBudget.ratio(width,height,window.devicePixelRatio||1);
+ if(width!==canvasWidth||height!==canvasHeight||Math.abs(ratio-canvasRatio)>.01){
+  renderer.setPixelRatio(ratio);renderer.setSize(width,height,false);canvasWidth=width;canvasHeight=height;canvasRatio=ratio;
+ }
+ lighting.invalidate();invalidateFrame();
+}
+const resizeObserver=new ResizeObserver(()=>{renderBudget.suspend(performance.now());resize();});resizeObserver.observe($('boardViewport'));
+// 大厅 12fps 展示，暂停/结算按需绘制；后台页面完全停止绘制。
+function stopFrames(){if(frameId)cancelAnimationFrame(frameId);if(idleTimer)clearTimeout(idleTimer);frameId=idleTimer=0;}
+function scheduleFrame(){
+ if(disposed||document.hidden||frameId||idleTimer)return;
+ if(mode==='playing'||renderDirty)frameId=requestAnimationFrame(frame);
+ else if(mode==='menu')idleTimer=setTimeout(()=>{idleTimer=0;if(!disposed&&!document.hidden)frameId=requestAnimationFrame(frame);},1000/12);
+}
+function invalidateFrame(){renderDirty=true;if(idleTimer){clearTimeout(idleTimer);idleTimer=0;}scheduleFrame();}
+function frame(now){
+ frameId=0;if(disposed||document.hidden)return;
+ const delta=now-previous,dt=Math.min(.05,Math.max(0,delta/1000));previous=now;
  if(mode==='playing'){
   const motion=gyro.sample(dt);
   if(mode==='playing'&&(!gyro.selected||gyro.fresh)){
@@ -132,11 +143,18 @@ let previous=performance.now();function frame(now){requestAnimationFrame(frame);
     sphere.position.x=ball.x;sphere.position.z=ball.z;
     board.rotation.z=T.MathUtils.damp(board.rotation.z,-input.x*.035,7,dt);board.rotation.x=T.MathUtils.damp(board.rotation.x,-input.y*.035,7,dt);const offset=(level.size-1)/2;board.position.set(-offset,0,-offset).applyQuaternion(board.quaternion);
    }
-   hud();
+   if(now-lastHud>=100){hud();lastHud=now;}
   }else accumulator=0;
  }
- starMeshes.forEach((m,i)=>{if(isOrb()){m.quaternion.copy(m.userData.baseQuaternion);m.rotateZ(now*.001+i);}else{m.rotation.y=now*.001+i;m.position.y=.37+Math.sin(now*.002+i)*.05;}});renderer.render(scene,camera);
+ // 输入与 120Hz 固定步长物理独立推进，高刷新率显示器最多绘制 60fps。
+ if(renderDirty||mode!=='playing'||now-lastRender>=1000/60-.75){
+  if(mode==='playing'&&renderBudget.observe(now,now-lastPresented))resize();
+  starMeshes.forEach((m,i)=>{if(isOrb()){m.quaternion.copy(m.userData.baseQuaternion);m.rotateZ(now*.001+i);}else{m.rotation.y=now*.001+i;m.position.y=.37+Math.sin(now*.002+i)*.05;}});
+  lastPresented=now;lighting.prepareFrame(now,mode==='playing');renderer.render(scene,camera);lastRender=renderDirty||mode!=='playing'?now:Math.max(lastRender+1000/60,now-1000/60);renderDirty=false;
+ }
+ scheduleFrame();
 }
-buildLevels();loadLevel(0);requestAnimationFrame(frame);
-// 浏览器缓存整页时保留 WebGL 资源，返回页面后继续显示房间。
-window.addEventListener('pagehide',event=>{if(event.persisted)return;disposeMazeModel(board);disposeMazeModel(desk);disposeMazeModel(room);lighting.dispose();renderer.dispose();env.dispose();});
+buildLevels();loadLevel(0);
+// 浏览器整页缓存恢复时重新调度；实际离开时释放全部渲染资源。
+window.addEventListener('pageshow',event=>{if(event.persisted){previous=performance.now();lighting.invalidate();invalidateFrame();}});
+window.addEventListener('pagehide',event=>{stopFrames();if(event.persisted)return;disposed=true;resizeObserver.disconnect();fullscreen.dispose();disposeMazeModel(board);disposeMazeModel(desk);disposeMazeModel(room);lighting.dispose();renderer.dispose();env.dispose();});
