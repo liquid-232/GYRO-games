@@ -23,3 +23,27 @@ body[data-screen=playing] .flight-strip{display:flex}.flight-strip{position:abso
 
 @media(min-width:701px) and (max-width:1200px){.flight-strip{left:auto;right:22px;transform:none}}
 @media(max-width:380px){.brand{font-size:20px;gap:5px}.brand-mark{width:24px;height:24px}.brand small{display:none}.top-actions button:first-child{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.intro{max-width:88vw}h1{font-size:54px}.gyro-checks{flex-wrap:wrap;gap:10px}.gyro-connect{flex-wrap:wrap}.gyro-device{flex-basis:100%;margin-bottom:4px}}
+
+/* Embossed title lettering: CSS-only, with a readable solid-color fallback. */
+.combat-title{isolation:isolate;white-space:nowrap;text-shadow:none;filter:drop-shadow(0 3px 1px #000b)}
+.combat-title span{position:relative;display:inline-block;margin:0;color:#e8e8dd;text-shadow:0 1px 0 #fff5,0 3px 0 #343b31,0 5px 8px #0008}
+.combat-title .title-ember{margin-left:3px;color:#f69b45;text-shadow:0 1px 0 #ffda8655,0 3px 0 #67381d,0 0 20px #ed782524}
+@supports (background-clip:text) or (-webkit-background-clip:text){
+ .combat-title .title-steel{background:linear-gradient(180deg,#fffef1 4%,#c4cabc 31%,#f4f4e5 43%,#8a9584 47%,#e2e5d4 54%,#a5b19a 82%,#e7eada 100%);background-clip:text;-webkit-background-clip:text;color:transparent;text-shadow:none;-webkit-text-stroke:.5px #dce3cc55;filter:drop-shadow(0 2px 0 #394333)}
+ .combat-title .title-ember{background:linear-gradient(180deg,#ffe3a3 0%,#ffb45c 35%,#ce6528 47%,#ff9d42 55%,#e77a2c 80%,#ffc977 100%);background-clip:text;-webkit-background-clip:text;color:transparent;text-shadow:none;-webkit-text-stroke:.5px #ffc07966;filter:drop-shadow(0 2px 0 #6e3a1e) drop-shadow(0 0 9px #f47c242a)}
+ .combat-title span:before{content:attr(data-text);position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(173deg,transparent 0 8px,#101b1666 8.5px 9px,transparent 9.5px 16px);background-clip:text;-webkit-background-clip:text;color:transparent;-webkit-text-stroke:0}
+ .combat-title span:after{content:attr(data-text);position:absolute;inset:0;pointer-events:none;color:transparent;-webkit-text-stroke:0;background:linear-gradient(110deg,transparent 34%,#fffbe6bb 48%,transparent 60%);background-size:320% 100%;background-position:130% 0;background-clip:text;-webkit-background-clip:text;animation:title-glint 7s ease-in-out 1.1s infinite;opacity:0}
+ .combat-title .title-ember:after{animation-delay:1.28s}
+}
+.title-kicker{position:relative;color:#a9b69c;text-shadow:1px 1px 0 #000,0 0 12px #b6d38d15}
+.title-kicker:after{content:attr(data-text);position:absolute;inset:0;pointer-events:none;color:#e5edd0;clip-path:inset(46% 0 45%);transform:translateX(1px);opacity:.45}
+.aircraft-label h2,.modal h2{ text-shadow:0 1px 0 #ffffed38,0 3px 0 #090f09,0 0 18px #b3c88a10 }
+.primary{text-shadow:0 1px 0 #ffdf9b55;overflow:hidden}
+.primary:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 30%,#fff4c244 48%,transparent 65%);transform:translateX(-130%)}
+.primary:hover:after,.primary:focus-visible:after{animation:button-scan .65s ease-out both}
+#notice{overflow:hidden;text-shadow:0 1px 3px #000,0 0 8px #dbe9b21a}
+#notice:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 35%,#cce6a129 50%,transparent 65%);transform:translateX(-130%)}
+#notice[style*="opacity: 1"]:after{animation:button-scan .65s ease-out both}
+@keyframes title-glint{0%,72%{background-position:130% 0;opacity:0}76%{opacity:.65}92%{background-position:-30% 0;opacity:.65}100%{background-position:-30% 0;opacity:0}}
+@keyframes button-scan{from{transform:translateX(-130%)}to{transform:translateX(130%)}}
+@media(prefers-reduced-motion:reduce){.combat-title span:after,.primary:after,#notice:after{animation:none!important;opacity:0}}
