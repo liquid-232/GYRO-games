@@ -16,10 +16,34 @@ const gyro=new GyroController({onInterrupt:message=>pause(message),onNoseDirecti
 // 复用空战的硬件协议、校准与断流保护；为本游戏提供对应的界面文字。
 const renderStatus=gyro.renderStatus.bind(gyro);gyro.renderStatus=()=>{renderStatus();$('gyroTitle').textContent=`${gyro.linkName}体感滚球`;$('controlHint').textContent='倾斜控制方向';$('gyroGuide').innerHTML=$('gyroGuide').innerHTML.replaceAll('飞行','挑战');};
 $('gyroPanel').querySelector('.gyro-footnote').textContent='设置中位后关闭面板，点击开始或继续挑战。选择控制器的前进方向，可调整操控轴。';
-const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setClearColor(0x102e33);renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+// 抗锯齿配合超采样，让透明球壳轮廓和远处的细轨道保持清晰。
+const renderer=new T.WebGLRenderer({canvas:$('mazeCanvas'),antialias:true,powerPreference:'high-performance'});
+renderer.setClearColor(0x102e33);renderer.outputColorSpace=T.SRGBColorSpace;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+renderer.transmissionResolutionScale=1;
 const scene=new T.Scene(),camera=new T.OrthographicCamera(-8,8,8,-8,.1,100);camera.position.set(0,19,10);camera.lookAt(0,0,0);
-scene.add(new T.HemisphereLight(0xdcf8ed,0x193f48,1.7));const light=new T.DirectionalLight(0xffe2ae,3.4);light.position.set(-5,16,7);light.castShadow=true;light.shadow.mapSize.set(2048,2048);Object.assign(light.shadow.camera,{left:-10,right:10,top:10,bottom:-10});light.shadow.bias=-.0005;scene.add(light);const rim=new T.DirectionalLight(0x8de5ee,2.2);rim.position.set(8,4,-8);scene.add(rim);
-const environment=new T.Scene();environment.background=new T.Color(0x55737a);for(const x of [-5,5]){const panel=new T.Mesh(new T.PlaneGeometry(5,10),new T.MeshBasicMaterial({color:0xeafcff}));panel.position.set(x,7,2);panel.lookAt(0,0,0);environment.add(panel);}const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment);scene.environment=env.texture;pmrem.dispose();
+// 中性棚拍主光保留塑料原色，侧后方补光突出透明壳与钢珠的弧面。
+scene.add(new T.HemisphereLight(0xf0f5f2,0x283c45,.85));
+const light=new T.DirectionalLight(0xfff1df,2.6);light.position.set(-5,16,7);light.castShadow=true;
+const shadowSize=Math.min(4096,renderer.capabilities.maxTextureSize);light.shadow.mapSize.set(shadowSize,shadowSize);
+Object.assign(light.shadow.camera,{left:-10,right:10,top:10,bottom:-10,near:.5,far:45});
+light.shadow.bias=-.00015;light.shadow.normalBias=.018;scene.add(light);
+const rim=new T.DirectionalLight(0xd6f4ff,1.6);rim.position.set(8,4,-8);scene.add(rim);
+const fill=new T.DirectionalLight(0xe5eeff,.55);fill.position.set(0,-5,8);scene.add(fill);
+// 环绕六块不同宽度的柔光箱，球壳和金属球随视角移动时会呈现连续倒影。
+const environment=new T.Scene();environment.background=new T.Color(0x35444b);
+for(const [position,width,height,color,intensity] of [
+ [[-7,5,6],5,11,0xfff3e2,2.5],[[7,4,1],3,12,0xe8f6ff,2.1],
+ [[0,10,-3],8,5,0xffffff,2],[[1,-7,5],8,3,0xe9f2f1,.8],
+ [[-4,1,-9],2.5,10,0xffffff,1.8],[[7,0,-7],5,7,0xdcecff,1.1]
+]){
+ const panel=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({color:new T.Color(color).multiplyScalar(intensity)}));
+ panel.position.set(...position);panel.lookAt(0,0,0);environment.add(panel);
+}
+const pmrem=new T.PMREMGenerator(renderer),env=pmrem.fromScene(environment,0,.1,100,{size:512});
+scene.environment=env.texture;scene.environmentIntensity=.85;pmrem.dispose();
+for(const panel of environment.children){panel.geometry.dispose();panel.material.dispose();}
 let board=new T.Group(),sphere,starMeshes=[],exitRing;scene.add(board);
 function loadLevel(i){
  index=i;level=family==='sphere'?createSphereLevel(i):createLevel(i);ball=newBall(level);checkpoint={...level.start};elapsed=falls=fallTime=accumulator=0;collected.clear();mode='menu';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');
@@ -28,10 +52,14 @@ function loadLevel(i){
  [...$('levels').children].forEach((b,j)=>b.setAttribute('aria-pressed',i===j));let record;try{record=JSON.parse(localStorage.getItem(recordKey()));}catch{}$('record').textContent=record?`本关最佳 ${record.time.toFixed(1)} 秒 · ${record.falls} 次掉落`:'本关最佳 —';camera.up.set(0,1,0);if(isOrb()){const normal=new T.Vector3(...spherePoint(level,ball.x,ball.z)).normalize();camera.position.copy(normal.multiplyScalar(20));camera.lookAt(0,0,0);}else{camera.position.set(0,19,10);camera.lookAt(0,0,0);}hud();resize();
 }
 function hud(){$('timer').textContent=`${String(Math.floor(elapsed/60)).padStart(2,'0')}:${(elapsed%60).toFixed(1).padStart(4,'0')}`;$('stars').textContent=`${collected.size} / 3`;$('falls').textContent=falls;}
-function permit(){if(gyro.canFly)return true;$('mazeMessage').textContent=gyro.pauseMessage;$('modalText').textContent=gyro.pauseMessage;if($('gyroPanel').classList.contains('hidden'))$('gyroToggle').click();return false;}
+// 暂停、结算和连接设置位于画布外，显示前先退出全屏，确保面板可见。
+function leaveFullscreenForPanel(){
+ if(document.fullscreenElement===$('boardViewport'))document.exitFullscreen().catch(()=>{$('mazeMessage').textContent='请按 Esc 退出全屏以查看面板。';});
+}
+function permit(){if(gyro.canFly)return true;leaveFullscreenForPanel();$('mazeMessage').textContent=gyro.pauseMessage;$('modalText').textContent=gyro.pauseMessage;if($('gyroPanel').classList.contains('hidden'))$('gyroToggle').click();return false;}
 function start(){if(!permit())return;document.activeElement?.blur();if(mode==='won')loadLevel(index);if(!$('gyroPanel').classList.contains('hidden'))$('gyroClose').click();mode='playing';accumulator=0;$('mazeModal').classList.add('hidden');$('mazePause').disabled=false;document.body.classList.add('playing');$('mazeStart').textContent='暂停挑战 Ⅱ';$('mazeMessage').textContent=isOrb()?'球面模式：沿通道轻缓倾斜，窄桥上可按空格刹车。':'轻轻倾斜即可滚动。先收集三颗星星，再进入终点。';}
-function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');}
-function win(){mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(recordKey()));if(!old||elapsed<old.time)localStorage.setItem(recordKey(),JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');}
+function pause(message='休息一下，准备好后继续。'){if(mode!=='playing')return;leaveFullscreenForPanel();mode='paused';keys.clear();touch.x=touch.y=0;document.body.classList.remove('playing');$('modalTitle').textContent='挑战已暂停';$('modalText').textContent=message;$('continue').textContent='继续挑战';$('mazeModal').classList.remove('hidden');}
+function win(){leaveFullscreenForPanel();mode='won';document.body.classList.remove('playing');$('mazePause').disabled=true;let old;try{old=JSON.parse(localStorage.getItem(recordKey()));if(!old||elapsed<old.time)localStorage.setItem(recordKey(),JSON.stringify({time:elapsed,falls}));}catch{}$('modalTitle').textContent=index===2?'三关挑战完成！':'迷宫已征服';$('modalText').textContent=`收齐 3 颗星星 · 用时 ${elapsed.toFixed(1)} 秒 · 掉落 ${falls} 次${!old||elapsed<old.time?' · 新纪录':''}`;$('continue').textContent=index===2?'返回第一关':'下一关 ↗';$('mazeModal').classList.remove('hidden');}
 function buildLevels(){
  $('levels').replaceChildren();
  for(let i=0;i<3;i++){const b=document.createElement('button');b.innerHTML=`<span class=level-number>0${i+1}</span><span><b>${(family==='sphere'?['环绕初航','起伏回廊','极限窄桥']:['初识重力','曲径寻星','精密穿行'])[i]}</b><small>${(family==='sphere'?['入门 · 球面探索','进阶 · 坡道 / 宽桥','专家 · 窄桥 / 惯性']:['入门 · 9 × 9','进阶 · 11 × 11','挑战 · 13 × 13'])[i]}</small></span><span class=level-arrow>↗</span>`;b.onclick=()=>loadLevel(i);$('levels').append(b);}
@@ -39,9 +67,30 @@ function buildLevels(){
 for(const button of document.querySelectorAll('[data-family]'))button.onclick=()=>{family=button.dataset.family;document.querySelectorAll('[data-family]').forEach(b=>b.setAttribute('aria-pressed',b===button));buildLevels();loadLevel(0);};
 $('mazeStart').onclick=()=>{if(mode==='playing')pause();else start();};$('keyboardStart').onclick=()=>{$('controlMode').value='keyboard';$('controlMode').onchange();start();};
 $('mazePause').onclick=()=>mode==='playing'?pause():start();$('continue').onclick=()=>{if(mode==='won')loadLevel((index+1)%3);start();};$('retry').onclick=()=>{loadLevel(index);start();};$('mazeLobby').onclick=()=>loadLevel(index);
+// 全屏使用浏览器原生接口，异常只显示提示，不影响当前挑战状态。
+$('mazeExpand').onclick=async()=>{
+ $('mazeExpand').blur();
+ try{
+  if(document.fullscreenElement===$('boardViewport'))await document.exitFullscreen();
+  else if($('boardViewport').requestFullscreen)await $('boardViewport').requestFullscreen();
+  else $('mazeMessage').textContent='当前浏览器不支持全屏，请使用浏览器缩放扩大游戏画面。';
+ }catch{$('mazeMessage').textContent='浏览器暂未允许进入全屏，请再次点击全屏按钮。';}
+};
+document.addEventListener('fullscreenchange',()=>{
+ const expanded=document.fullscreenElement===$('boardViewport');
+ $('mazeExpand').textContent=expanded?'退出全屏 ↙':'全屏查看 ⛶';$('mazeExpand').setAttribute('aria-pressed',String(expanded));resize();
+});
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel,button'))return;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat){if(mode==='playing')pause();else if(mode==='paused')start();}return;}if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>pause());document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 for(const b of $('pad').children){b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);touch.x=Number(b.dataset.x);touch.y=Number(b.dataset.y);};b.onpointerup=b.onpointercancel=()=>{touch.x=touch.y=0;};}
-function resize(){const r=$('boardViewport').getBoundingClientRect(),aspect=r.width/Math.max(1,r.height),half=isOrb()?6.05:(level?.size||9)*.57;camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}new ResizeObserver(resize).observe($('boardViewport'));
+function resize(){
+ const r=$('boardViewport').getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height),aspect=width/height;
+ // 给直径 11.3 的外球壳留出构图边距；窄屏按宽度适配，不裁切球体。
+ const half=isOrb()?6.25:(level?.size||9)*.57;
+ camera.left=-half*Math.max(1,aspect);camera.right=-camera.left;camera.top=half*Math.max(1,1/aspect);camera.bottom=-camera.top;camera.updateProjectionMatrix();
+ // 普通屏幕也使用 1.5 倍采样，高分屏最高 2.5 倍；限制像素总量降低透射渲染开销。
+ const qualityRatio=Math.min(2.5,Math.max(1.5,window.devicePixelRatio||1)),pixelBudgetRatio=Math.sqrt(4000000/(width*height));
+ renderer.setPixelRatio(Math.min(qualityRatio,pixelBudgetRatio));renderer.setSize(width,height,false);
+}new ResizeObserver(resize).observe($('boardViewport'));
 let previous=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min(.05,Math.max(0,(now-previous)/1000));previous=now;
  if(mode==='playing'){
   const motion=gyro.sample(dt);

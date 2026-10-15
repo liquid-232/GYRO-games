@@ -6,3 +6,10 @@
 @media(min-width:901px) and (max-height:800px){.hint-card{display:none}#boardViewport{height:50vh}.layout{padding-bottom:10px}}
 
 .family-tabs{display:flex;padding:4px;background:#e5e8dd;border-radius:12px;margin:17px 0 12px;gap:3px}.family-tabs button{flex:1;border:0;padding:9px 4px;font-size:11px}.family-tabs button[aria-pressed=true]{background:#284d4a;color:#f8f0df;box-shadow:0 3px 12px #1c3d3020}.legend-end{max-width:55%;text-align:right;line-height:1.5}#boardViewport{background:radial-gradient(ellipse,#23484e,#102e33)}@media(min-width:901px) and (max-height:800px){.sidebar .subtitle{display:none}.family-tabs{margin:12px 0}.sidebar h1{font-size:30px}.level-tabs button{padding:10px}.record-box{margin:12px 0}}@media(max-width:900px){.family-tabs{margin:12px 0}.level-tabs{margin:12px 0}.legend-end{display:none}}
+
+/* 更大的玩具展示区；全屏后按 Esc 返回，画布按新尺寸重新采样。 */
+.arena-actions{display:flex;gap:8px}.arena-actions button{padding:10px 12px}#boardViewport{height:clamp(420px,58vh,820px)}#boardViewport:fullscreen{width:100vw;height:100vh;max-height:none;border-radius:0;background:#102e33}#boardViewport:fullscreen .board-top{top:25px;font-size:12px}#boardViewport:fullscreen .board-caption{bottom:24px;font-size:13px}@media(max-width:900px){.arena-actions{gap:5px}.arena-actions button{padding:9px;font-size:10px}#boardViewport{height:56vh;min-height:360px}}
+
+#boardViewport:fullscreen .board-top>span:last-child::after{content:" / ESC 返回"}
+
+#boardViewport:fullscreen #pad{position:absolute;bottom:55px;right:25px}
