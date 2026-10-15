@@ -23,9 +23,28 @@ export class MotionFeed {
   constructor() { this.clear(); }
   clear() {
     this.packet = null; this.lastSampleAt = null; this.lastPacketAt = null;
-    this.history = []; this.arrivals = []; this.anchor = null;
+    this.history = []; this.arrivals = []; this.anchor = null; this.receiveDelay = null;
   }
-  anchorClock(deviceUs, receivedAt) { this.anchor = { deviceUs, receivedAt }; }
+  anchorClock(deviceUs, receivedAt, sentAt = null) {
+    this.anchor = { deviceUs, receivedAt, sentAt };
+  }
+  // 设备执行探测命令的时刻位于浏览器发送与接收应答之间。
+  // 用该区间换算采样时钟，避免把 RTT/2 当作精确单向延迟。
+  estimateReceiveDelay(packet, now) {
+    const anchor = this.anchor;
+    if (!anchor || anchor.sentAt == null || anchor.sentAt > anchor.receivedAt
+        || now < anchor.receivedAt || now - anchor.receivedAt >= 2000) return null;
+    const deltaMs = signedDelta(packet.device_us, anchor.deviceUs) / 1000;
+    const lower = now - (anchor.receivedAt + deltaMs);
+    const upper = now - (anchor.sentAt + deltaMs);
+    // 预留 1 ms 时钟漂移/量化余量；明显来自未来的时间戳不显示。
+    if (upper < -1) return null;
+    return { min: Math.max(0, lower - 1), max: Math.max(0, upper + 1), clockAt: anchor.receivedAt };
+  }
+  receptionLatency(now) {
+    if (!this.isFresh(now) || !this.receiveDelay || now - this.receiveDelay.clockAt >= 2000) return null;
+    return this.receiveDelay;
+  }
   ingest(value, now) {
     const packet = decodeMotion(value);
     if (this.anchor && now - this.anchor.receivedAt < 2000 && packet.flags & SENSOR_OK) {
@@ -44,6 +63,7 @@ export class MotionFeed {
       return false;
     }
     this.packet = packet;
+    this.receiveDelay = packet.flags & SENSOR_OK ? this.estimateReceiveDelay(packet, now) : null;
     this.lastSampleAt = packet.flags & SENSOR_OK ? now : null;
     if (packet.flags & READY) {
       this.history.push(packet);

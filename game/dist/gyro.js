@@ -266,7 +266,7 @@ export class GyroController {
       const now = performance.now();
       if (generation !== this.generation) throw Error('控制器连接已变化，请重试');
       if (reply.byteLength !== 9 || reply.getUint8(0) !== op || reply.getUint32(1, true) !== id) throw Error('控制器指令应答不匹配');
-      if (op === 2) { this.rtt = now - started; this.feed.anchorClock(reply.getUint32(5, true), now); }
+      if (op === 2) { this.rtt = now - started; this.feed.anchorClock(reply.getUint32(5, true), now, started); }
     });
     this.commandTail = operation;
     return operation.finally(() => { if (generation === this.generation) this.pendingCommands--; });
@@ -337,6 +337,8 @@ export class GyroController {
     $('gyroConnect').disabled = !this.supported || this.connecting;
     $('gyroDisconnect').disabled = !this.connected && !this.connecting && !this.reconnecting;
     $('gyroRtt').textContent = alive && this.rtt != null ? `${this.rtt.toFixed(1)} ms` : '—';
+    const latency = !this.wired && linked ? this.feed.receptionLatency(now) : null;
+    $('gyroReceiveDelay').textContent = latency ? `${latency.min.toFixed(1)}–${latency.max.toFixed(1)} ms` : '—';
     $('gyroRate').textContent = alive ? `${this.feed.arrivals.length} Hz` : '—';
     const age = this.feed.age(now);
     $('gyroAge').textContent = linked && packet?.flags & SENSOR_OK && age != null ? `${Math.min(9999, Math.round(age))} ms` : '—';

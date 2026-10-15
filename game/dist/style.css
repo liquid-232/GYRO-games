@@ -60,3 +60,8 @@ body[data-map=space] .theater-label{background:#0c1426b3}.intro .features{margin
 @media(max-height:760px){.map-select{margin:10px 0}.map-option{padding:8px 9px}.intro .title-kicker{margin-top:13px}.intro h1{margin-bottom:12px}.intro .mission-rule{padding:8px 0}.intro .best{margin-top:11px}.intro .features{margin:12px 0 15px}}
 @media(max-height:620px){.map-option small{display:none}.map-option{padding:6px 9px}.map-symbol{width:20px;height:20px}.intro .title-kicker{margin-top:8px}}
 @media(max-height:500px){.map-select{margin:7px 0}.map-option{padding:5px 8px;font-size:11px}.intro p{margin:6px 0}}
+
+.gyro-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 10px}
+.gyro-metrics b{white-space:nowrap;font-size:16px}
+.gyro-delay-note{font-size:10px;line-height:1.65;color:#8c9b88;margin:9px 0 0}
+@media(max-width:380px){.gyro-metrics b{font-size:14px}}

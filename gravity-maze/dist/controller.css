@@ -26,3 +26,8 @@ header{z-index:10}.gyro-panel select,.gyro-panel input{font-family:inherit}
 .gyro-nose-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 12px 0}
 .gyro-nose-field select{min-width:110px;font-size:11px;padding:7px}
 .lobby-button{display:block;width:100%;margin-top:12px;padding:12px;border-color:#86f8df40;color:#aec6d4}
+
+.gyro-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 10px}
+.gyro-metrics b{white-space:nowrap;font-size:16px}
+.gyro-delay-note{font-size:10px;line-height:1.65;color:#8c9b88;margin:9px 0 0}
+@media(max-width:380px){.gyro-metrics b{font-size:14px}}

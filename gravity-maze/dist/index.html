@@ -11,7 +11,8 @@
   <p id="gyroGuide" class="gyro-guide">① 开启电脑蓝牙，点击连接并选择开发板<br>② 保持控制器静止约 2–4 秒<br>③ 以舒适握姿设置中位后开始挑战</p>
   <div class="gyro-connect"><div class="gyro-device"><span id="gyroDeviceLabel">蓝牙控制器</span><b id="gyroDevice">GYRO-C3-BLE-xxxx</b></div><button id="gyroConnect">连接蓝牙</button><button id="gyroDisconnect" disabled>断开</button></div>
   <div id="gyroStatus" class="gyro-status" role="status">尚未连接</div>
-  <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
+  <div class="gyro-metrics"><div>命令往返<b id="gyroRtt">—</b></div><div title="设备采样到浏览器收到姿态的估算范围；包含时钟同步不确定性，不是动作到画面的总延迟。">蓝牙接收延迟（估算）<b id="gyroReceiveDelay">—</b></div><div>接收频率<b id="gyroRate">—</b></div><div>数据年龄<b id="gyroAge">—</b></div></div>
+  <p class="gyro-delay-note">接收延迟为采样到浏览器接收的估算范围。时钟探测完成后显示，USB / 未连接 / 数据过期时显示 —。</p>
   <div class="gyro-pose">横滚 / 俯仰 <b id="gyroTilt">— / —</b></div>
   <section id="gyroModelCard" class="gyro-model-card" aria-labelledby="gyroModelTitle">
     <div class="gyro-model-heading"><span id="gyroModelTitle">控制器 · 实时姿态</span><div><button id="gyroViewIso" type="button" aria-pressed="true">立体</button><button id="gyroViewTop" type="button" aria-pressed="false">俯视</button></div></div>
