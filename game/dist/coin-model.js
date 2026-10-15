@@ -15,16 +15,23 @@ function buildMora() {
     }
     if(g!==source)g.dispose();source.dispose();
   };
-  // Closed solid disc with rounded bevels: the previous pickup was a hollow ring.
-  const profile=[[0,-.069],[.55,-.069],[.62,-.061],[.665,-.035],[.675,0],[.665,.035],[.62,.061],[.55,.069],[0,.069]];
-  add(new T.LatheGeometry(profile.map(([r,z])=>new T.Vector2(r,z)),48).rotateX(Math.PI/2),0xd69a32);
+  // Thick minted blank: recessed faces, stepped shoulders and bevelled edge.
+  const profile=[[0,-.105],[.515,-.105],[.535,-.13],[.558,-.166],[.61,-.18],[.647,-.157],[.675,-.115],[.675,.115],[.647,.157],[.61,.18],[.558,.166],[.535,.13],[.515,.105],[0,.105]];
+  add(new T.LatheGeometry(profile.map(([r,z])=>new T.Vector2(r,z)),48).rotateX(Math.PI/2),0xc58b2e);
+
+  // Raised edge reeding remains visible when the face turns away from the camera.
+  for(let i=0;i<40;i++) {
+    const tooth=new T.BoxGeometry(.018,.012,.205);
+    tooth.translate(0,.675,0).rotateZ(i*Math.PI*2/40);
+    add(tooth,i%2?0xe9b44e:0xf5c768);
+  }
 
   const point=new T.Vector3(0,.405,0);
   const curve=new T.CubicBezierCurve3(point,new T.Vector3(-.41,-.16,0),new T.Vector3(-.13,-.43,0),point.clone().applyAxisAngle(new T.Vector3(0,0,1),-2*Math.PI/3));
-  // A flat ribbon with bevelled shoulders and alternating crossing heights,
-  // rather than a round wire drawn on the face. Three rotated arcs form a knot.
+  // High relief ribbons: dark vertical walls, bevels, and a broad polished top.
+  // Bake these color differences into the same mesh, keeping one draw per coin.
   function knot(face) {
-    const data=[],color=0xffdc7b,steps=32,width=.038;
+    const bands=Array.from({length:5},()=>[]),steps=40,width=.047;
     for(let arm=0;arm<3;arm++) {
       const angle=-arm*2*Math.PI/3,c=Math.cos(angle),s=Math.sin(angle);
       const sections=[];
@@ -32,33 +39,37 @@ function buildMora() {
         const t=i/steps,p=curve.getPoint(t),tangent=curve.getTangent(t);
         const x=p.x*c-p.y*s,y=p.x*s+p.y*c;
         const tx=tangent.x*c-tangent.y*s,ty=tangent.x*s+tangent.y*c;
-        // Over/under relief is deliberately small so the knot still feels minted.
-        const height=.097+.013*Math.sin(t*Math.PI*2);
-        sections.push([[-width,.077],[-width*.68,height],[width*.68,height],[width,.077]].map(([w,z])=>[x-ty*w,y+tx*w,face*z]));
+        const height=.221+.026*Math.sin(t*Math.PI*2);
+        const profile=[[-width,.108],[-width,height-.022],[-width*.68,height],
+          [width*.68,height],[width,height-.022],[width,.108]];
+        sections.push(profile.map(([w,z])=>[x-ty*w,y+tx*w,face*z]));
       }
-      for(let i=0;i<steps;i++)for(let band=0;band<3;band++) {
+      for(let i=0;i<steps;i++)for(let band=0;band<5;band++) {
         const a=sections[i][band],b=sections[i+1][band],c=sections[i+1][band+1],d=sections[i][band+1];
-        // Ribbon order follows its tangent; front and reverse need opposite winding.
         const triangles=face>0?[a,b,c,a,c,d]:[a,c,b,a,d,c];
-        for(const v of triangles)data.push(...v);
+        for(const v of triangles)bands[band].push(...v);
       }
     }
-    const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(data,3));g.computeVertexNormals();add(g,color);
+    const shades=[0x98601c,0xe9b752,0xffdf87,0xe9b752,0x98601c];
+    bands.forEach((data,i)=>{
+      const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(data,3));
+      g.computeVertexNormals();add(g,shades[i]);
+    });
   }
   for(const face of [-1,1]) {
     // Slightly darker recessed field lets the raised golden knot read at a distance.
-    const field=new T.CircleGeometry(.557,48);
+    const field=new T.CircleGeometry(.516,48);
     if(face<0)field.rotateY(Math.PI);
-    field.translate(0,0,face*.071);add(field,0xba7f27);
-    add(new T.TorusGeometry(.617,.033,6,48).translate(0,0,face*.066),0xffd46b);
-    add(new T.TorusGeometry(.548,.009,4,48).translate(0,0,face*.076),0xf5bc4e);
+    field.translate(0,0,face*.106);add(field,0xa76e23);
+    add(new T.TorusGeometry(.611,.027,8,48).translate(0,0,face*.166),0xffd46b);
+    add(new T.TorusGeometry(.526,.012,6,48).translate(0,0,face*.126),0xf5bc4e);
     knot(face);
     // Three small diamond stamps echo the emblem's threefold symmetry.
     for(let i=0;i<3;i++) {
       const angle=i*Math.PI*2/3,shape=new T.Shape();
       shape.moveTo(0,.022);shape.lineTo(.015,0);shape.lineTo(0,-.022);shape.lineTo(-.015,0);shape.closePath();
-      const stamp=new T.ShapeGeometry(shape);if(face<0)stamp.rotateY(Math.PI);
-      stamp.translate(0,.493,0).rotateZ(angle).translate(0,0,face*.074);add(stamp,0xffd46b);
+      const stamp=new T.ExtrudeGeometry(shape,{depth:.025,steps:1,bevelEnabled:true,bevelSegments:1,bevelSize:.004,bevelThickness:.004});if(face<0)stamp.rotateY(Math.PI);
+      stamp.translate(0,.493,0).rotateZ(angle).translate(0,0,face*.111);add(stamp,0xffd46b);
     }
   }
   geometry=new T.BufferGeometry();
@@ -66,12 +77,13 @@ function buildMora() {
   geometry.setAttribute('normal',new T.Float32BufferAttribute(normals,3));
   geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
   geometry.computeBoundingSphere();
-  material=new T.MeshStandardMaterial({vertexColors:true,metalness:.8,roughness:.29,envMapIntensity:1.35,emissive:0x6b3808,emissiveIntensity:.16});
+  material=new T.MeshStandardMaterial({vertexColors:true,metalness:.76,roughness:.32,envMapIntensity:1.25,emissive:0x6b3808,emissiveIntensity:.035});
 }
 
 export function createMoraCoin() {
   if(!geometry)buildMora();
   const coin=new T.Mesh(geometry,material);coin.name='mora-coin';
-  coin.rotation.x=-.12;
+  // A slight two-axis tilt exposes the edge even at the face-on part of the spin.
+  coin.rotation.set(.3,0,.1);
   return coin;
 }
