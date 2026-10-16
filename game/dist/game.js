@@ -12,9 +12,21 @@ import { createSpaceMap, createOrbitalObstacle, createOrbitalGate, ringIntersect
 const $=id=>document.getElementById(id), clamp=T.MathUtils.clamp;
 let renderer;
 try{renderer=new T.WebGLRenderer({canvas:$('scene'),antialias:true,powerPreference:'high-performance'});}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='无法启动 3D 场景，请启用浏览器硬件加速后刷新。';throw e;}
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x72939c);renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x72939c);renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;
 const scene=new T.Scene();scene.fog=new T.FogExp2(0x78979e,.005);const camera=new T.PerspectiveCamera(53,innerWidth/innerHeight,.1,700);
 const hemisphere=new T.HemisphereLight(0xc2deeb,0x263b3c,2.3);scene.add(hemisphere);const sun=new T.DirectionalLight(0xffe8c4,3.3);sun.position.set(-32,38,-45);scene.add(sun);const rim=new T.DirectionalLight(0xb5e4ff,1.8);rim.position.set(15,8,15);scene.add(rim);
+// One tight shadow map follows the player. Only the aircraft casts/receives it;
+// the island scene and its reflection do not add duplicate shadow-map renders.
+scene.add(sun.target);sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.near=1;sun.shadow.camera.far=110;
+sun.shadow.bias=-.00005;sun.shadow.radius=1.5;
+const aircraftSunOffset=new T.Vector3(-32,38,-45);
+function updateAircraftShadows(){
+ if(!aircraft||selectedMap!=='island')return;
+ const radius=mode==='menu'?10:3.1;
+ Object.assign(sun.shadow.camera,{left:-radius,right:radius,top:radius,bottom:-radius});sun.shadow.camera.updateProjectionMatrix();
+ sun.target.position.copy(aircraft.position);sun.position.copy(aircraft.position).add(aircraftSunOffset);
+ sun.shadow.normalBias=mode==='menu'?.025:.007;renderer.shadowMap.needsUpdate=true;
+}
 // Studio environment gives the existing metal material a continuous reflection.
 const envScene=new T.Scene();envScene.background=new T.Color(0x344a5d);for(const [x,y,z,color] of [[-8,9,0,0xdcf6ff],[8,5,2,0xffe0b0],[0,3,-10,0x78bfff]]){const p=new T.Mesh(new T.PlaneGeometry(7,17),new T.MeshBasicMaterial({color,side:T.DoubleSide}));p.position.set(x,y,z);p.lookAt(0,0,0);envScene.add(p);}const pmrem=new T.PMREMGenerator(renderer);const envMap=pmrem.fromScene(envScene,.02);scene.environment=envMap.texture;pmrem.dispose();
 const world=new T.Group();scene.add(world);const objects=[],shots=[],hostile=[],effects=[];let aircraft,mode='loading',autoFire=true,muted=true,keys=new Set(),touch={x:0,y:0,fire:false};
@@ -42,6 +54,7 @@ function selectMap(kind){
  if(mode!=='menu'&&mode!=='loading')return;
  selectedMap=kind==='island'?'island':'space';const orbital=selectedMap==='space';
  poseView?.setAircraftKind(selectedMap);
+ sun.castShadow=!orbital;if(orbital)sun.target.position.set(0,0,0);
  if(orbital&&!spaceMap)spaceMap=createSpaceMap(scene);
  islandMap.root.visible=!orbital;if(spaceMap)spaceMap.root.visible=orbital;
  activeMap=orbital?spaceMap:islandMap;activeMap.reset();
@@ -50,7 +63,7 @@ function selectMap(kind){
  if(islandAircraft)islandAircraft.visible=!orbital;
  if(spaceAircraft){spaceAircraft.visible=orbital;updateSpaceplane(spaceAircraft,0,false);}
  $('aircraftName').innerHTML=orbital?'玄女 <em>XUAN NV</em>':'F-22 <em>RAPTOR</em>';
- $('aircraftDescription').textContent=orbital?'空天战机 · 高置前掠翼 · 双发推进':'空优战机 · 双发 · 金属机身';
+ $('aircraftDescription').textContent=orbital?'空天战机 · 高置前掠翼 · 双发推进':'F-22A · 菱形翼身 · 双二维喷口';
  $('aircraftRole').textContent=orbital?'SPACE FIGHTER / 空天':'FIGHTER / 单座';
  $('aircraftNumber').textContent=orbital?'现役载具 / 02':'现役载具 / 01';
  $('islandAircraftDiagram').style.display=orbital?'none':'';
@@ -324,7 +337,7 @@ function tick(dt){const motion=gyro.sample(dt);if(mode!=='playing'||(gyro.select
  activeMap.update(distance,elapsed);
  updateHUD();}
 async function boot(){try{const response=await fetch('assets/airplane-f22.glb');if(!response.ok)throw Error(`HTTP ${response.status}`);islandAircraft=parseAircraft(await response.arrayBuffer());spaceAircraft=createSpaceplane();aircraft=new T.Group();aircraft.name='Player aircraft carrier';aircraft.add(islandAircraft,spaceAircraft);scene.add(aircraft);islandAircraft.visible=selectedMap==='island';spaceAircraft.visible=selectedMap==='space';updateSpaceplane(spaceAircraft,0,false);aircraft.scale.setScalar(.85);mode='menu';$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';animate();}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='模型加载失败。请通过本地 HTTP 服务打开游戏，并确认 assets/airplane-f22.glb 存在。'+e.message;}}
-let last=performance.now(),menuTime=0;function animate(now=performance.now()){requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.033);last=now;if(mode==='playing')tick(dt);else if(mode==='menu'){menuTime+=dt;activeMap.update(0,menuTime);aircraft.visible=true;aircraft.position.set(3.2,5+Math.sin(menuTime*.8)*.2,0);aircraft.rotation.set(.12,Math.PI*.16+Math.sin(menuTime*.18)*.12,-.13);camera.position.set(12,15,23);camera.lookAt(0,4,-1);}if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}updateMissileHUD();updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);if(spaceAircraft&&selectedMap==='space')updateSpaceplane(spaceAircraft,mode==='menu'?menuTime:elapsed,mode!=='menu');activeMap.renderReflection(renderer,scene,camera);renderer.render(scene,camera);}
+let last=performance.now(),menuTime=0;function animate(now=performance.now()){requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.033);last=now;if(mode==='playing')tick(dt);else if(mode==='menu'){menuTime+=dt;activeMap.update(0,menuTime);aircraft.visible=true;aircraft.position.set(3.2,5+Math.sin(menuTime*.8)*.2,0);aircraft.rotation.set(.12,Math.PI*.16+Math.sin(menuTime*.18)*.12,-.13);camera.position.set(12,15,23);camera.lookAt(0,4,-1);}if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}updateMissileHUD();updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);if(spaceAircraft&&selectedMap==='space')updateSpaceplane(spaceAircraft,mode==='menu'?menuTime:elapsed,mode!=='menu');updateAircraftShadows();activeMap.renderReflection(renderer,scene,camera);renderer.render(scene,camera);}
 $('start').onclick=$('restart').onclick=reset;$('pause').onclick=$('resume').onclick=pause;$('returnLobby').onclick=$('endLobby').onclick=returnLobby;$('fireMode').onclick=toggleFire;$('missileSkill').onclick=launchTrackingMissile;$('sound').onclick=()=>{muted=!muted;$('sound').textContent=`音效 ${muted?'OFF':'ON'}`;$('sound').setAttribute('aria-label',muted?'开启音效':'关闭音效');tone(700,.15);};
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel'))return;if(e.target.tagName==='BUTTON'&&e.code==='Space'&&mode!=='playing')return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat)pause();return;}if(e.code==='KeyQ'){e.preventDefault();if(!e.repeat)launchTrackingMissile();return;}if(e.code==='KeyF'&&!e.repeat)toggleFire();if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(mode==='playing')pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&mode==='playing')pause();});
 const stick=$('stick');let stickId=null;function stickMove(e){const r=stick.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,mag=Math.max(1,Math.hypot(x,y)/40);touch.x=x/mag/40;touch.y=-y/mag/40;$('thumb').style.transform=`translate(${touch.x*32}px,${-touch.y*32}px)`;}stick.onpointerdown=e=>{stickId=e.pointerId;stick.setPointerCapture(e.pointerId);stickMove(e);};stick.onpointermove=e=>{if(e.pointerId===stickId)stickMove(e);};stick.onpointerup=stick.onpointercancel=()=>{stickId=null;touch.x=touch.y=0;$('thumb').style.transform='';};$('touchFire').onpointerdown=e=>{touch.fire=true;e.target.setPointerCapture(e.pointerId);};$('touchFire').onpointerup=$('touchFire').onpointercancel=()=>touch.fire=false;

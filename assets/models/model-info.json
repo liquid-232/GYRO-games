@@ -1,7 +1,16 @@
 {
-  "triangles": 25148,
-  "parts": 32,
-  "glb_bytes": 1832656,
-  "units": "meters (approximate artistic scale)",
-  "axes": "Y up, nose -Z"
+  "triangles": 15472,
+  "parts": 136,
+  "glb_bytes": 1206784,
+  "dimensions_m": {
+    "span": 13.56,
+    "body_height": 3.93,
+    "length": 18.9
+  },
+  "units": "meters; length/span based on published dimensions, local surfaces artist reconstructed",
+  "axes": "Y up, nose -Z",
+  "sources": [
+    "https://www.af.mil/About-Us/Fact-Sheets/Display/Article/104506/f-22-raptor/",
+    "https://www.lockheedmartin.com/content/dam/lockheed-martin/aero/documents/f22/FG19-Product%20Card%20F-22.pdf"
+  ]
 }

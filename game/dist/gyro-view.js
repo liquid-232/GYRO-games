@@ -25,10 +25,13 @@ export class GyroPoseView {
     this.$ = id => document.getElementById(id);
     this.renderer = new T.WebGLRenderer({ canvas: this.$('gyroModelCanvas'), antialias: true, alpha: true, powerPreference: 'low-power' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=T.PCFSoftShadowMap;
     this.renderer.setClearColor(0x06131d, 0); this.renderer.toneMapping = T.ACESFilmicToneMapping;
     this.scene = new T.Scene(); this.camera = new T.PerspectiveCamera(38, 1, .1, 40); this.camera.up.set(0, 0, 1);
     this.scene.add(new T.HemisphereLight(0xdcefff, 0x385376, 3));
     const light = new T.DirectionalLight(0xe4f6ff, 4); light.position.set(-3, -2, 6); this.scene.add(light);
+    light.castShadow=true;light.shadow.mapSize.set(512,512);light.shadow.normalBias=.006;light.shadow.bias=-.00008;
+    Object.assign(light.shadow.camera,{left:-2,right:2,top:2,bottom:-2,near:1,far:15});light.shadow.camera.updateProjectionMatrix();
     const warm = new T.DirectionalLight(0xffdba2, 2); warm.position.set(2, 4, 3); this.scene.add(warm);
     this.board = createGyroModel(boardLabel); this.aircraft = null; this.aircraftModels = new Map(); this.aircraftLoads = new Map(); this.selectionRevision = 0;
     this.aircraftKind = aircraftKind === 'space' ? 'space' : 'island';
@@ -182,7 +185,7 @@ export class GyroPoseView {
   dispose() {
     this.disposed = true; this.stop(); this.visible = false; this.observer.disconnect(); document.removeEventListener('visibilitychange', this.onVisibility);
     const geometries = new Set(), materials = new Set();
-    this.scene.traverse(object => { if (object.geometry) geometries.add(object.geometry); if (object.material) materials.add(object.material); });
+    this.scene.traverse(object => { if (object.isLight) object.dispose?.(); if (object.geometry) geometries.add(object.geometry); if (object.material) materials.add(object.material); });
     const textures = new Set();
     geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => {
       for (const key of ['map', 'bumpMap', 'roughnessMap']) if (material[key]) textures.add(material[key]);
