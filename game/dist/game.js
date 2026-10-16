@@ -7,6 +7,7 @@ import { createEnemyAircraft, ENEMY_EXTENTS } from './enemy-model.js';
 import { createEnemyMissile, createPlayerMissile, animateEnemyMissile } from './missile-model.js';
 import { createIslandMap, createSeaStack } from './island-map.js';
 import { createMoraCoin } from './coin-model.js';
+import { createEnemyExplosions } from './explosion-effect.js';
 import { createSpaceMap, createOrbitalObstacle, createOrbitalGate, ringIntersects } from './space-map.js';
 const $=id=>document.getElementById(id), clamp=T.MathUtils.clamp;
 let renderer;
@@ -17,6 +18,8 @@ const hemisphere=new T.HemisphereLight(0xc2deeb,0x263b3c,2.3);scene.add(hemisphe
 // Studio environment gives the existing metal material a continuous reflection.
 const envScene=new T.Scene();envScene.background=new T.Color(0x344a5d);for(const [x,y,z,color] of [[-8,9,0,0xdcf6ff],[8,5,2,0xffe0b0],[0,3,-10,0x78bfff]]){const p=new T.Mesh(new T.PlaneGeometry(7,17),new T.MeshBasicMaterial({color,side:T.DoubleSide}));p.position.set(x,y,z);p.lookAt(0,0,0);envScene.add(p);}const pmrem=new T.PMREMGenerator(renderer);const envMap=pmrem.fromScene(envScene,.02);scene.environment=envMap.texture;pmrem.dispose();
 const world=new T.Group();scene.add(world);const objects=[],shots=[],hostile=[],effects=[];let aircraft,mode='loading',autoFire=true,muted=true,keys=new Set(),touch={x:0,y:0,fire:false};
+const enemyExplosions=createEnemyExplosions(world);
+window.addEventListener('pagehide',()=>enemyExplosions.dispose(),{once:true});
 let hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=0,shotTimer=0,noticeTimer=0,shake=0,best=0;
 try{best=Number(localStorage.getItem('gyro-skystrike-best'))||0;}catch{}$('best').textContent=String(best).padStart(6,'0');
 let poseView, poseLoad;
@@ -153,7 +156,7 @@ function damageEnemy(enemy,amount,position){
  enemy.hp-=amount;particleBurst(position,0xffcf8a,3);
  if(enemy.hp>0)return;
  const p=enemy.mesh.position.clone();
- particleBurst(p,0xff7755,20);score+=200;kills++;tone(140,.22,'sawtooth',.035);
+ enemyExplosions.spawn(p,enemy.mesh.quaternion,selectedMap==='space');score+=200;kills++;tone(140,.22,'sawtooth',.035);
  removeObject(index);
  for(let k=0;k<3;k++)addCoin(p.x+(k-1)*.8,p.y,p.z-k*1.2);
 }
@@ -238,7 +241,7 @@ function updateTrackingMissile(s,dt){
  }
  return false;
 }
-function clearList(list){for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
+function clearList(list){if(list===effects)enemyExplosions.clear();for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
 function reset(){if(!permitFlight())return;resetMissileSkill();for(const list of [objects,shots,hostile,effects])clearList(list);hp=5;score=coins=kills=distance=elapsed=0;activeMap.reset();waveIndex=0;level=1;speed=26;invuln=2;spawnTimer=.8;shotTimer=0;shake=0;player.x=0;player.y=5;keys.clear();touch.x=touch.y=0;touch.fire=false;mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;aircraft.visible=true;aircraft.scale.setScalar(.24);aircraft.rotation.set(0,0,0);camera.position.set(0,11,22);$('hitflash').style.opacity=0;for(let i=0;i<7;i++)addCoin(Math.sin(i*.4)*.5,5,-28-i*3);addRock(-6,5,-57,1.8);addEnemy(0,5,-90);if(selectedMap==='space')addGate(0,6.5,-150);notice(selectedMap==='space'?'轨道禁区 · 穿越蓝色环框，避开残骸':'进入群岛战区 · 沿金币航线穿越礁柱');updateHUD();tone(600,.2);}
 function updateHUD(){$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(selectedMap==='space'?player.y*10:1600+player.y*160);}
 function end(){mode='over';document.body.classList.remove('playing');$('pause').disabled=true;const newBest=score>best;best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}$('best').textContent=String(best).padStart(6,'0');$('report').innerHTML=`任务得分 <b>${Math.floor(score)}</b><br>拾取摩拉 <b>${coins}</b><br>击毁目标 <b>${kills}</b><br>飞行距离 <b>${(distance/1000).toFixed(2)} km</b><br>${newBest?'新纪录':'历史最佳'} <b>${best}</b>`;$('endOverlay').classList.remove('hidden');tone(100,.6,'sawtooth',.045);}
@@ -317,6 +320,7 @@ function tick(dt){const motion=gyro.sample(dt);if(mode!=='playing'||(gyro.select
  }
  for(let i=hostile.length-1;i>=0;i--){const b=hostile[i];b.mesh.position.addScaledVector(b.vel,dt);b.life-=dt;b.age+=dt;animateEnemyMissile(b.mesh,b.age,b.flamePhase);if(b.mesh.position.distanceTo(new T.Vector3(player.x,player.y,player.z))<.9){damage();b.life=0;if(mode==='over')return;}if(b.life<=0||b.mesh.position.z>30){world.remove(b.mesh);hostile.splice(i,1);}}
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=dt;e.mesh.position.addScaledVector(e.vel,dt);e.mesh.material.opacity=Math.max(0,e.life);if(e.life<=0){world.remove(e.mesh);e.mesh.material.dispose();effects.splice(i,1);}}
+ enemyExplosions.update(dt,speed,camera);
  activeMap.update(distance,elapsed);
  updateHUD();}
 async function boot(){try{const response=await fetch('assets/airplane-f22.glb');if(!response.ok)throw Error(`HTTP ${response.status}`);islandAircraft=parseAircraft(await response.arrayBuffer());spaceAircraft=createSpaceplane();aircraft=new T.Group();aircraft.name='Player aircraft carrier';aircraft.add(islandAircraft,spaceAircraft);scene.add(aircraft);islandAircraft.visible=selectedMap==='island';spaceAircraft.visible=selectedMap==='space';updateSpaceplane(spaceAircraft,0,false);aircraft.scale.setScalar(.85);mode='menu';$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';animate();}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='模型加载失败。请通过本地 HTTP 服务打开游戏，并确认 assets/airplane-f22.glb 存在。'+e.message;}}
