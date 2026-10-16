@@ -5,12 +5,14 @@ import * as T from './dist/vendor/three.module.js';
 import { createEnemyAircraft, ENEMY_EXTENTS } from './dist/enemy-model.js';
 import { createSeaStack } from './dist/island-map.js';
 import { createMoraCoin } from './dist/coin-model.js';
-import { createEnemyMissile, animateEnemyMissile } from './dist/missile-model.js';
+import { createEnemyMissile, createPlayerMissile, animateEnemyMissile } from './dist/missile-model.js';
+import { advanceFrame } from './dist/frame-timing.js';
+import { createParticleSystem } from './dist/particle-system.js';
 const source=fs.readFileSync(new URL('./dist/game.js',import.meta.url),'utf8');
 const elements=new Map();
 const $=id=>{if(!elements.has(id))elements.set(id,{textContent:'',innerHTML:'',style:{},children:Array.from({length:5},()=>({classList:{toggle(){}}})),classList:{add(){},remove(){},toggle(){}},setAttribute(){},focus(){},onclick(){}});return elements.get(id);};
-const ctx=vm.createContext({T,createMoraCoin,createEnemyAircraft,ENEMY_EXTENTS,createEnemyMissile,animateEnemyMissile,createSeaStack,activeMap:{reset(){},update(){}},console,assert,Math,$,gyro:{sample(){return null;},canFly:true},permitFlight(){return true;},localStorage:{setItem(){}},document:{body:{classList:{add(){},remove(){}}}},tone(){}});
-vm.runInContext(`const clamp=T.MathUtils.clamp;const world=new T.Group(),camera=new T.PerspectiveCamera(),objects=[],shots=[],hostile=[],effects=[];const aircraft=new T.Group();let selectedMap='island',waveIndex=0,menuTime=0,mode='menu',autoFire=true,keys=new Set(),touch={x:0,y:0,fire:false},hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=99,shotTimer=0,noticeTimer=0,shake=0,best=0;const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};const materials={rock:new T.MeshBasicMaterial(),coin:new T.MeshBasicMaterial(),laser:new T.MeshBasicMaterial(),red:new T.MeshBasicMaterial(),enemy:new T.MeshBasicMaterial()};const geo={rock:new T.IcosahedronGeometry(1),coin:new T.TorusGeometry(),shot:new T.CylinderGeometry(),particle:new T.OctahedronGeometry(),box:new T.BoxGeometry(),enemyBody:new T.ConeGeometry(),enemyLight:new T.SphereGeometry(),enemyBullet:new T.SphereGeometry()};`,ctx);
+const ctx=vm.createContext({T,advanceFrame,createParticleSystem,enemyExplosions:{spawn(){},update(){},clear(){}},createPlayerMissile,createMoraCoin,createEnemyAircraft,ENEMY_EXTENTS,createEnemyMissile,animateEnemyMissile,createSeaStack,activeMap:{reset(){},update(){}},console,assert,Math,$,gyro:{sample(){return null;},canFly:true},permitFlight(){return true;},localStorage:{setItem(){}},document:{body:{classList:{add(){},remove(){}}}},tone(){}});
+vm.runInContext(`const clamp=T.MathUtils.clamp;const world=new T.Group(),camera=new T.PerspectiveCamera(),objects=[],shots=[],hostile=[],effects=[];const aircraft=new T.Group();let selectedMap='island',waveIndex=0,menuTime=0,mode='menu',autoFire=true,keys=new Set(),touch={x:0,y:0,fire:false},hp=5,score=0,coins=0,kills=0,distance=0,elapsed=0,level=1,speed=26,invuln=0,spawnTimer=99,shotTimer=0,noticeTimer=0,shake=0,best=0;const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};const materials={rock:new T.MeshBasicMaterial(),coin:new T.MeshBasicMaterial(),laser:new T.MeshBasicMaterial(),red:new T.MeshBasicMaterial(),enemy:new T.MeshBasicMaterial()};const geo={rock:new T.IcosahedronGeometry(1),coin:new T.TorusGeometry(),shot:new T.CylinderGeometry(),particle:new T.OctahedronGeometry(),box:new T.BoxGeometry(),enemyBody:new T.ConeGeometry(),enemyLight:new T.SphereGeometry(),enemyBullet:new T.SphereGeometry()};const particles=createParticleSystem(world,geo.particle);`,ctx);
 vm.runInContext(source.slice(source.indexOf('function notice('),source.indexOf('async function boot(')),ctx);
 vm.runInContext(`
 reset();assert.equal(mode,'playing');assert.equal(hp,5);assert.equal(objects.filter(o=>o.type==='coin').length,7);
@@ -45,5 +47,43 @@ assert.equal(mode,'menu');assert.equal(best,9999);assert.equal(score,0);assert.e
 assert.equal(objects.length,0);assert.equal(shots.length,0);assert.equal(hostile.length,0);assert.equal(effects.length,0);
 assert.equal(aircraft.scale.x,.85);assert.equal($('pause').disabled,true);
 reset();assert.equal(mode,'playing');assert.equal(hp,5);
+
+// 同一真实时间在不同显示帧率下推进相同航程和技能冷却。
+for(const fps of [15,20,30,60,120]){
+ clearList(objects);clearList(shots);clearList(hostile);clearList(effects);
+ elapsed=distance=score=0;mode='playing';autoFire=false;spawnTimer=10000;speed=26;level=1;
+ missileSkillState().cooldown=12;
+ for(let i=0;i<fps*10;i++)advanceGame(1/fps);
+ assert.ok(Math.abs(elapsed-10)<1e-8, fps+' FPS elapsed');
+ assert.ok(Math.abs(distance-260)<1e-7, fps+' FPS flight distance');
+ assert.ok(Math.abs(missileSkillState().cooldown-2)<1e-8, fps+' FPS cooldown');
+}
+let samples=0;const originalSample=gyro.sample;gyro.sample=()=>{samples++;return null;};
+advanceGame(.2);assert.equal(samples,1,'read controls once per render frame, not once per catch-up substep');gyro.sample=originalSample;
+const frozen=elapsed,cooldown=missileSkillState().cooldown;
+pause();advanceGame(.2);assert.equal(elapsed,frozen);assert.equal(missileSkillState().cooldown,cooldown);pause();
+gyro.selected=true;gyro.fresh=false;advanceGame(.2);assert.equal(elapsed,frozen);gyro.selected=false;
+clearList(objects);clearList(shots);clearList(hostile);clearList(effects);
+resetMissileSkill();elapsed=0;player.x=0;player.y=5;mode='playing';hp=5;invuln=1000;spawnTimer=10000;kills=0;score=0;
+launchTrackingMissile();assert.equal(missileSkillState().cooldown,0,'no target consumes no cooldown');
+addEnemy(0,5,-60);objects[0].fire=100;objects[0].hp=6;launchTrackingMissile();
+assert.equal(missileSkillState().cooldown,12);assert.equal(shots.length,1);
+const missile=shots[0];assert.equal(missile.mesh.getObjectByName('missile-exhaust').visible,false);
+advanceGame(.2);assert.equal(missile.ignited,false);advanceGame(.18);assert.equal(missile.ignited,true);
+for(let i=0;i<120&&shots.includes(missile);i++)advanceGame(1/60);
+assert.equal(kills,1,'homing skill still destroys a moving target');assert.ok(score>=200);
+assert.equal(shots.includes(missile),false);
+clearList(objects);clearList(shots);clearList(hostile);clearList(effects);resetMissileSkill();
+addEnemy(0,5,-60);addEnemy(-5,6,-90);for(const o of objects)o.fire=100;
+launchTrackingMissile();const retarget=shots[0],replacement=objects[1];damageEnemy(objects[0],99,new T.Vector3());
+advanceGame(.2);advanceGame(.2);assert.equal(retarget.target,replacement,'reacquire after gun destroys original target');
+pause();returnLobby();assert.equal(particles.count,0);assert.equal(shots.length,0);assert.equal(missileSkillState().cooldown,0);
+reset();clearList(objects);clearList(shots);clearList(hostile);clearList(effects);
+spawnTimer=10000;autoFire=false;hp=5;invuln=0;player.x=0;player.y=5;
+addRock(0,5,player.z-4,1.8);advanceGame(.2);
+assert.equal(hp,4,'catch-up substeps detect an obstacle crossing the player during a long frame');
+pause();returnLobby();
+
+console.log('PASS: 15/20/30/60/120 FPS flight/cooldown consistency, pause and stale-input freezes, cold launch, homing/reacquisition and pooled cleanup.');
 console.log('PASS: lobby cleanup/restart, start/reset, coins, obstacle damage, invulnerability, swept shot hit, enemy destruction/drop, pause/resume, bounds, difficulty, game over, fire mode.');
 `,ctx);

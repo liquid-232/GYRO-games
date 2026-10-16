@@ -205,12 +205,14 @@ function ocean() {
 // A planar scene reflection, not hardware ray tracing. One capped half-size pass;
 // the main camera's projection is preserved and objects below the sea are clipped.
 function createWaterReflection(sea,shores) {
-  let target;const reflectedCamera=new T.PerspectiveCamera(),size=new T.Vector2(),direction=new T.Vector3(),look=new T.Vector3(),up=new T.Vector3();
+  let target,lastReflection=-Infinity;const reflectedCamera=new T.PerspectiveCamera(),size=new T.Vector2(),direction=new T.Vector3(),look=new T.Vector3(),up=new T.Vector3();
   const clip=[new T.Plane(new T.Vector3(0,1,0),-SEA_LEVEL-.02)];
   const bias=new T.Matrix4().set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1);
   const uniforms=sea.material.uniforms;
-  function render(renderer,scene,camera) {
+  function render(renderer,scene,camera,now=performance.now(),prepare=false) {
     if(camera.position.y<=SEA_LEVEL+.05)return;
+    if(!prepare&&target&&now-lastReflection<1000/30)return;
+    lastReflection=now;
     renderer.getDrawingBufferSize(size);
     const scale=Math.min(.5,960/Math.max(size.x,size.y));
     const width=Math.max(1,Math.round(size.x*scale)),height=Math.max(1,Math.round(size.y*scale));
@@ -232,12 +234,16 @@ function createWaterReflection(sea,shores) {
     reflectedCamera.updateMatrixWorld();
     uniforms.uReflectionMatrix.value.copy(bias).multiply(reflectedCamera.projectionMatrix).multiply(reflectedCamera.matrixWorldInverse);
     const oldTarget=renderer.getRenderTarget(),oldClip=renderer.clippingPlanes,oldTone=renderer.toneMapping,oldXR=renderer.xr.enabled,oldAutoClear=renderer.autoClear;
+    const oldShadowUpdate=renderer.shadowMap.needsUpdate,oldShadowAuto=renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.needsUpdate=false;renderer.shadowMap.autoUpdate=false;
     sea.visible=false;for(const shore of shores)shore.visible=false;
     try{
       renderer.xr.enabled=false;renderer.clippingPlanes=clip;renderer.toneMapping=T.NoToneMapping;renderer.autoClear=true;
       renderer.setRenderTarget(target);renderer.clear();renderer.render(scene,reflectedCamera);uniforms.uReflectionReady.value=1;
+      if(prepare)return renderer.compileAsync(scene,reflectedCamera);
     } finally {
       sea.visible=true;for(const shore of shores)shore.visible=true;
+      renderer.shadowMap.needsUpdate=oldShadowUpdate;renderer.shadowMap.autoUpdate=oldShadowAuto;
       renderer.setRenderTarget(oldTarget);renderer.clippingPlanes=oldClip;renderer.toneMapping=oldTone;renderer.xr.enabled=oldXR;renderer.autoClear=oldAutoClear;
     }
   }

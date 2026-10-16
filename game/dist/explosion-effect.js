@@ -4,7 +4,7 @@ import * as T from './vendor/three.module.js';
 // materials and spark buffer. No downloads, timers or additional render passes.
 export function createEnemyExplosions(parent) {
   const bursts = [], maxBursts = 6;
-  let assets;
+  let assets,primer;
   const clamp = T.MathUtils.clamp;
   function texture(smoke) {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -27,6 +27,19 @@ export function createEnemyExplosions(parent) {
     return assets ??= {fire:texture(false),smoke:texture(true),
       ring:new T.TorusGeometry(1,.025,4,56),shard:new T.TetrahedronGeometry(1),
       metal:new T.MeshStandardMaterial({color:0x454d56,metalness:.65,roughness:.62,emissive:0x65200a,emissiveIntensity:.45})};
+  }
+  function prepare(renderer){
+    const a=resources();if(primer)return;
+    renderer?.initTexture(a.fire);renderer?.initTexture(a.smoke);
+    primer=new T.Group();primer.name='Explosion material warmup';primer.visible=false;
+    for(const [map,blending] of [[a.fire,T.AdditiveBlending],[a.smoke,T.NormalBlending]]){
+      primer.add(new T.Sprite(new T.SpriteMaterial({map,transparent:true,opacity:0,depthWrite:false,blending,toneMapped:false})));
+    }
+    primer.add(new T.Mesh(a.ring,new T.MeshBasicMaterial({color:0xffbd65,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,toneMapped:false})));
+    const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute([0,0,0,0,0,0],3));g.setAttribute('color',new T.Float32BufferAttribute([1,1,1,1,1,1],3));
+    primer.add(new T.LineSegments(g,new T.LineBasicMaterial({vertexColors:true,transparent:true,depthWrite:false,blending:T.AdditiveBlending,toneMapped:false})));
+    const debris=new T.InstancedMesh(a.shard,a.metal,1);debris.count=0;primer.add(debris);
+    parent.add(primer);
   }
   function release(burst){
     parent.remove(burst.root);
@@ -106,6 +119,6 @@ export function createEnemyExplosions(parent) {
       b.debris.instanceMatrix.needsUpdate=true;
     }
   }
-  function dispose(){clear();if(assets){assets.fire.dispose();assets.smoke.dispose();assets.ring.dispose();assets.shard.dispose();assets.metal.dispose();assets=null;}}
-  return {spawn,update,clear,dispose};
+  function dispose(){clear();if(primer){parent.remove(primer);for(const child of primer.children){if(child.material!==assets.metal)child.material.dispose();if(child.isLine)child.geometry.dispose();if(child.isInstancedMesh)child.dispose();}primer=null;}if(assets){assets.fire.dispose();assets.smoke.dispose();assets.ring.dispose();assets.shard.dispose();assets.metal.dispose();assets=null;}}
+  return {prepare,spawn,update,clear,dispose};
 }
