@@ -14,8 +14,14 @@ export function createCannonEffects(parent) {
       varying float vMode;
       void main(){
         vLocal=position;vMode=flameMode;
-        vec4 viewPosition=modelViewMatrix*vec4(position,1.);
-        vView=-viewPosition.xyz;vNormalView=normalMatrix*normal;
+        vec4 localPosition=vec4(position,1.);
+        vec3 localNormal=normal;
+        #ifdef USE_INSTANCING
+          localPosition=instanceMatrix*localPosition;
+          localNormal=mat3(instanceMatrix)*localNormal;
+        #endif
+        vec4 viewPosition=modelViewMatrix*localPosition;
+        vView=-viewPosition.xyz;vNormalView=normalMatrix*localNormal;
         gl_Position=projectionMatrix*viewPosition;
       }`,
     fragmentShader:`
@@ -69,6 +75,10 @@ export function createCannonEffects(parent) {
     const mesh=new T.Mesh(muzzleGeometry,material);mesh.name=side<0?'Left muzzle flash':'Right muzzle flash';
     mesh.position.set(side*.62,0,-2);root.add(mesh);return mesh;
   });
+  // 飞行中的普通炮弹统一实例化绘制；每种弹道最多一次绘制。
+  const capacity=64,roundRoot=new T.Group();roundRoot.name='Batched cannon rounds';parent.add(roundRoot);
+  const rounds={fire:new T.InstancedMesh(tracerGeometry,material,capacity),laser:new T.InstancedMesh(laserGeometry,laserMaterial,capacity)};
+  for(const mesh of Object.values(rounds)){mesh.count=0;mesh.frustumCulled=false;mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);roundRoot.add(mesh);}
   const localMuzzle=new T.Vector3(),duration=.075;
   let remaining=0,firedSinceRender=false,changed=false;
   function muzzlePosition(side,player,attitude,out) {
@@ -76,16 +86,23 @@ export function createCannonEffects(parent) {
     return out.set(player.x,player.y,player.z).add(localMuzzle);
   }
   function createTracer() {
-    const mesh=new T.Mesh(tracerGeometry,material);mesh.name='Cannon incendiary tracer';
+    const mesh=new T.Mesh(tracerGeometry,material);mesh.name='Cannon incendiary tracer';mesh.userData.roundType='fire';
     return mesh;
   }
   function createLaser() {
-    const mesh=new T.Mesh(laserGeometry,laserMaterial);mesh.name='Orbital laser round';
+    const mesh=new T.Mesh(laserGeometry,laserMaterial);mesh.name='Orbital laser round';mesh.userData.roundType='laser';
     return mesh;
   }
   function trigger(){remaining=duration;firedSinceRender=true;changed=true;}
   function update(dt){uniforms.time.value+=dt;remaining=Math.max(0,remaining-dt);changed=true;}
-  function flush(player,attitude,enabled=true) {
+  function flush(player,attitude,enabled=true,shots=[]) {
+    const counts={fire:0,laser:0};
+    for(const shot of shots){
+      const type=shot.mesh.userData.roundType;
+      if(!rounds[type]||counts[type]>=capacity)continue;
+      shot.mesh.updateMatrix();rounds[type].setMatrixAt(counts[type]++,shot.mesh.matrix);
+    }
+    for(const [type,mesh] of Object.entries(rounds)){mesh.count=counts[type];if(mesh.count)mesh.instanceMatrix.needsUpdate=true;}
     // 低帧率的追赶子步中即使已完成闪焰，也至少在本画面呈现一次射击提示。
     const strength=changed?(firedSinceRender?1:remaining/duration):uniforms.muzzleStrength.value;
     changed=false;firedSinceRender=false;uniforms.muzzleStrength.value=strength;
@@ -95,7 +112,7 @@ export function createCannonEffects(parent) {
       flashes[i].scale.set(1+pulse*.13,1-pulse*.08,.9+pulse*.18);
     }
   }
-  function clear(){remaining=0;firedSinceRender=false;changed=false;root.visible=false;uniforms.muzzleStrength.value=0;}
-  function dispose(){clear();parent.remove(root);tracerGeometry.dispose();muzzleGeometry.dispose();material.dispose();laserGeometry.dispose();laserMaterial.dispose();}
+  function clear(){for(const mesh of Object.values(rounds))mesh.count=0;remaining=0;firedSinceRender=false;changed=false;root.visible=false;uniforms.muzzleStrength.value=0;}
+  function dispose(){clear();parent.remove(root);parent.remove(roundRoot);for(const mesh of Object.values(rounds))mesh.dispose();tracerGeometry.dispose();muzzleGeometry.dispose();material.dispose();laserGeometry.dispose();laserMaterial.dispose();}
   return {root,createTracer,createLaser,muzzlePosition,trigger,update,flush,clear,dispose};
 }

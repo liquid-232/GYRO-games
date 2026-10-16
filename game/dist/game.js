@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.js';
 import { updateTacticalHUD } from './tactical-hud.js';
-import { advanceFrame, AdaptiveResolution } from './frame-timing.js';
+import { advanceFrame } from './frame-timing.js';
+import {GraphicsSettings} from './graphics-settings.js';
 import { createParticleSystem } from './particle-system.js';
 import { createCannonEffects } from './cannon-effects.js';
 import { GyroController } from './gyro.js';
@@ -15,19 +16,26 @@ import { createSpaceMap, createOrbitalObstacle, createOrbitalGate, ringIntersect
 const $=id=>document.getElementById(id), clamp=T.MathUtils.clamp;
 let renderer;
 try{renderer=new T.WebGLRenderer({canvas:$('scene'),antialias:true,powerPreference:'high-performance'});}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='无法启动 3D 场景，请启用浏览器硬件加速后刷新。';throw e;}
-const resolution=new AdaptiveResolution(devicePixelRatio);
-renderer.setPixelRatio(resolution.ratio);renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x72939c);renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;
+const graphics=new GraphicsSettings(renderer,devicePixelRatio);
+renderer.debug.checkShaderErrors=new URLSearchParams(location.search).has('debug-gpu');
+renderer.setClearColor(0x72939c);renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;
 const scene=new T.Scene();scene.fog=new T.FogExp2(0x78979e,.005);const camera=new T.PerspectiveCamera(53,innerWidth/innerHeight,.1,700);
 const hemisphere=new T.HemisphereLight(0xc2deeb,0x263b3c,2.3);scene.add(hemisphere);const sun=new T.DirectionalLight(0xffe8c4,3.3);sun.position.set(-32,38,-45);scene.add(sun);const rim=new T.DirectionalLight(0xb5e4ff,1.8);rim.position.set(15,8,15);scene.add(rim);
 // One tight shadow map follows the player. Only the aircraft casts/receives it;
 // the island scene and its reflection do not add duplicate shadow-map renders.
-scene.add(sun.target);sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.near=1;sun.shadow.camera.far=110;
+scene.add(sun.target);sun.shadow.mapSize.set(512,512);sun.shadow.camera.near=1;sun.shadow.camera.far=110;
 sun.shadow.bias=-.00005;sun.shadow.radius=1.5;
 const aircraftSunOffset=new T.Vector3(-32,38,-45);
-function updateAircraftShadows(){
- if(!aircraft||selectedMap!=='island')return;
+let lastShadowAt=-Infinity,lastShadowRadius=0;
+function applyGraphicsQuality(){
+ sun.castShadow=selectedMap==='island'&&graphics.profile.shadows;
+ islandMap.setQuality(graphics.profile);enemyExplosions.setQuality(graphics.profile);lastShadowAt=-Infinity;
+}
+function updateAircraftShadows(now=performance.now()){
+ if(!aircraft||!sun.castShadow||selectedMap!=='island'||now-lastShadowAt<1000/graphics.profile.shadowHz)return;
+ lastShadowAt=now;
  const radius=mode==='menu'?10:3.1;
- Object.assign(sun.shadow.camera,{left:-radius,right:radius,top:radius,bottom:-radius});sun.shadow.camera.updateProjectionMatrix();
+ if(radius!==lastShadowRadius){Object.assign(sun.shadow.camera,{left:-radius,right:radius,top:radius,bottom:-radius});sun.shadow.camera.updateProjectionMatrix();lastShadowRadius=radius;}
  sun.target.position.copy(aircraft.position);sun.position.copy(aircraft.position).add(aircraftSunOffset);
  sun.shadow.normalBias=mode==='menu'?.025:.007;renderer.shadowMap.needsUpdate=true;
 }
@@ -55,14 +63,14 @@ window.addEventListener('pagehide',()=>cannon.dispose(),{once:true});
 const particles=createParticleSystem(world,geo.particle);
 window.addEventListener('pagehide',()=>particles.dispose(),{once:true});
 const islandMap=createIslandMap(scene);
-let spaceMap,activeMap=islandMap,selectedMap='space',islandAircraft,spaceAircraft,waveIndex=0;
+let spaceMap,activeMap=islandMap,selectedMap='space',islandAircraft,spaceAircraft,waveIndex=0,battlefieldPreparing=false;
 try{const saved=localStorage.getItem('gyro-skystrike-map');if(saved==='island'||saved==='space')selectedMap=saved;}catch{}
 function selectMap(kind){
  if(mode!=='menu'&&mode!=='loading')return;
  selectedMap=kind==='island'?'island':'space';const orbital=selectedMap==='space';
  cannon.clear();
  poseView?.setAircraftKind(selectedMap);
- sun.castShadow=!orbital;if(orbital)sun.target.position.set(0,0,0);
+ applyGraphicsQuality();if(orbital)sun.target.position.set(0,0,0);
  if(orbital&&!spaceMap)spaceMap=createSpaceMap(scene);
  islandMap.root.visible=!orbital;if(spaceMap)spaceMap.root.visible=orbital;
  activeMap=orbital?spaceMap:islandMap;activeMap.reset();
@@ -93,7 +101,11 @@ function selectMap(kind){
  $('radarObstacleLabel').textContent=orbital?'残骸 / 环框':'礁柱';$('scene').setAttribute('aria-label',orbital?'3D 轨道禁区太空空战场景':'3D 海岛空战场景');
  try{localStorage.setItem('gyro-skystrike-map',selectedMap);}catch{}
 }
-$('mapIsland').onclick=()=>selectMap('island');$('mapSpace').onclick=()=>selectMap('space');
+async function chooseBattlefield(kind){
+ if(mode!=='menu'||battlefieldPreparing)return;
+ selectMap(kind);await prepareCurrentBattlefield();
+}
+$('mapIsland').onclick=()=>chooseBattlefield('island');$('mapSpace').onclick=()=>chooseBattlefield('space');
 selectMap(selectedMap);
 
 let audio;function tone(freq,dur,type='sine',vol=.025){if(muted)return;try{audio??=new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,audio.currentTime);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*.45),audio.currentTime+dur);g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur);}catch{}}
@@ -327,7 +339,7 @@ function fire(){
  for(const side of [-1,1]){
   const mesh=orbital?cannon.createLaser():cannon.createTracer();
   cannon.muzzlePosition(side,player,aircraft.quaternion,mesh.position);
-  world.add(mesh);shots.push({mesh,life:1.6});
+  shots.push({mesh,life:1.6});
  }
  tone(orbital?720:170,.065,orbital?'triangle':'sawtooth',orbital?.012:.018);
 }
@@ -366,23 +378,29 @@ async function prepareCombatRendering(){
  world.add(warmup);enemyExplosions.prepare(renderer);
  camera.position.set(0,11,22);camera.lookAt(0,5,-24);
  aircraft.position.set(0,5,7);aircraft.scale.setScalar(.24);
- const savedMap=selectedMap;
+ await prepareCurrentBattlefield();
+}
+async function prepareCurrentBattlefield(){
+ battlefieldPreparing=true;$('start').disabled=true;$('renderQuality').disabled=true;
+ $('mapIsland').disabled=$('mapSpace').disabled=true;
  $('start').innerHTML='正在准备战场 <span>↗</span>';
- // 两张地图的雾、光照与海面裁剪产生不同变体，提前准备，避免战斗中首次出现时卡住。
+ // 只预热当前战场；切换地图时在大厅准备，避免首次进入同时编译两套光照。
  try{
-  for(const map of ['island','space']){
-   selectMap(map);
-   updateAircraftShadows();
-   renderer.render(scene,camera);
-   await renderer.compileAsync(scene,camera);
-   if(map==='island')await activeMap.renderReflection(renderer,scene,camera,performance.now(),true);
-  }
- }finally{selectMap(savedMap);}
+  if(activeMap.ready)await activeMap.ready;
+  updateAircraftShadows();renderer.render(scene,camera);
+  await renderer.compileAsync(scene,camera);
+  if(selectedMap==='island')await activeMap.renderReflection(renderer,scene,camera,performance.now(),true);
+ }finally{
+  battlefieldPreparing=false;$('renderQuality').disabled=false;$('mapIsland').disabled=$('mapSpace').disabled=false;
+  if(mode==='menu'){$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';}
+ }
 }
 async function boot(){try{const response=await fetch('assets/airplane-f22.glb');if(!response.ok)throw Error(`HTTP ${response.status}`);islandAircraft=parseAircraft(await response.arrayBuffer());spaceAircraft=createSpaceplane();aircraft=new T.Group();aircraft.name='Player aircraft carrier';aircraft.add(islandAircraft,spaceAircraft);scene.add(aircraft);islandAircraft.visible=selectedMap==='island';spaceAircraft.visible=selectedMap==='space';updateSpaceplane(spaceAircraft,0,false);await prepareCombatRendering();aircraft.scale.setScalar(.85);mode='menu';$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';animate();}catch(e){$('loadError').classList.remove('hidden');$('loadError').textContent='模型加载失败。请通过本地 HTTP 服务打开游戏，并确认 assets/airplane-f22.glb 存在。'+e.message;}}
 let last=performance.now(),menuTime=0;
 function animate(now=performance.now()){
  requestAnimationFrame(animate);
+ if(document.hidden||battlefieldPreparing){last=now;return;}
+ if(!graphics.shouldDraw(now,mode==='playing'))return;
  const rawDt=Math.max(0,(now-last)/1000),dt=Math.min(rawDt,.25);last=now;
  if(mode==='playing')advanceGame(rawDt);
  else if(mode==='menu'){
@@ -392,17 +410,17 @@ function animate(now=performance.now()){
   camera.position.set(12,15,23);camera.lookAt(0,4,-1);
  }
  if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}
- const ratio=resolution.observe(rawDt*1000,mode==='playing'&&!document.hidden&&(!gyro.selected||gyro.fresh));
- if(ratio!=null)renderer.setPixelRatio(ratio);
- particles.flush();cannon.flush(player,aircraft.quaternion,selectedMap==='island');updateHUD(now);updateMissileHUD();
+ graphics.record(now,rawDt*1000,mode==='playing'&&(!gyro.selected||gyro.fresh),mode==='menu');
+ particles.flush();cannon.flush(player,aircraft.quaternion,selectedMap==='island',shots);updateHUD(now);updateMissileHUD();
  updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);
  if(spaceAircraft&&selectedMap==='space')updateSpaceplane(spaceAircraft,mode==='menu'?menuTime:elapsed,mode!=='menu');
  activeMap.renderReflection(renderer,scene,camera,now);
- updateAircraftShadows();renderer.render(scene,camera);
+ updateAircraftShadows(now);renderer.render(scene,camera);
 }
 
 $('start').onclick=$('restart').onclick=reset;$('pause').onclick=$('resume').onclick=pause;$('returnLobby').onclick=$('endLobby').onclick=returnLobby;$('fireMode').onclick=toggleFire;$('missileSkill').onclick=launchTrackingMissile;$('sound').onclick=()=>{muted=!muted;$('sound').textContent=`音效 ${muted?'OFF':'ON'}`;$('sound').setAttribute('aria-label',muted?'开启音效':'关闭音效');tone(700,.15);};
 window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel'))return;if(e.target.tagName==='BUTTON'&&e.code==='Space'&&mode!=='playing')return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat)pause();return;}if(e.code==='KeyQ'){e.preventDefault();if(!e.repeat)launchTrackingMissile();return;}if(e.code==='KeyF'&&!e.repeat)toggleFire();if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(mode==='playing')pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&mode==='playing')pause();});
 const stick=$('stick');let stickId=null;function stickMove(e){const r=stick.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,mag=Math.max(1,Math.hypot(x,y)/40);touch.x=x/mag/40;touch.y=-y/mag/40;$('thumb').style.transform=`translate(${touch.x*32}px,${-touch.y*32}px)`;}stick.onpointerdown=e=>{stickId=e.pointerId;stick.setPointerCapture(e.pointerId);stickMove(e);};stick.onpointermove=e=>{if(e.pointerId===stickId)stickMove(e);};stick.onpointerup=stick.onpointercancel=()=>{stickId=null;touch.x=touch.y=0;$('thumb').style.transform='';};$('touchFire').onpointerdown=e=>{touch.fire=true;e.target.setPointerCapture(e.pointerId);};$('touchFire').onpointerup=$('touchFire').onpointercancel=()=>touch.fire=false;
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();graphics.resize(innerWidth,innerHeight);});
+graphics.onChange=()=>{applyGraphicsQuality();if(mode==='menu'&&!battlefieldPreparing)void prepareCurrentBattlefield();};
 boot();

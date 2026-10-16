@@ -3,8 +3,8 @@ import * as T from './vendor/three.module.js';
 // Shared procedural textures and geometry; each burst owns only its changing
 // materials and spark buffer. No downloads, timers or additional render passes.
 export function createEnemyExplosions(parent) {
-  const bursts = [], maxBursts = 6;
-  let assets,primer;
+  const bursts = [], idle = [], maxBursts = 6;
+  let assets,primer,activeLimit=6,reducedEffects=false;
   const clamp = T.MathUtils.clamp;
   function texture(smoke) {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -40,16 +40,30 @@ export function createEnemyExplosions(parent) {
     primer.add(new T.LineSegments(g,new T.LineBasicMaterial({vertexColors:true,transparent:true,depthWrite:false,blending:T.AdditiveBlending,toneMapped:false})));
     const debris=new T.InstancedMesh(a.shard,a.metal,1);debris.count=0;primer.add(debris);
     parent.add(primer);
+    // 预分配六组爆炸网格、材质和动态缓冲，游玩中只重置数据。
+    const limit=activeLimit;activeLimit=maxBursts;
+    for(let i=0;i<maxBursts;i++)spawn(new T.Vector3(0,0,-500),new T.Quaternion(),true);
+    clear();activeLimit=limit;
   }
   function release(burst){
-    parent.remove(burst.root);
-    for(const material of burst.materials)material.dispose();
-    burst.sparkGeometry.dispose();burst.debris.dispose();
+    burst.root.visible=false;idle.push(burst);
+  }
+  function recycle(burst,position,attitude,orbital){
+    burst.root.visible=true;burst.root.position.copy(position);burst.age=0;burst.orbital=orbital;
+    for(const p of burst.puffs){
+      p.offset.set((Math.random()-.5)*1.4,(Math.random()-.5)*.65,(Math.random()-.5)*2.5);
+      if(p.smoke)p.velocity.set((Math.random()-.5)*1.7,orbital?(Math.random()-.5)*1.1:.8+Math.random(),(Math.random()-.5)*1.6);
+      else{p.offset.applyQuaternion(attitude);p.velocity.copy(p.offset).multiplyScalar(1.5);p.velocity.y+=.4+Math.random();}
+    }
+    for(const spark of burst.sparks){spark.velocity.randomDirection().multiplyScalar(4+Math.random()*7);spark.life=.45+Math.random()*.45;}
+    for(const fragment of burst.fragments){fragment.velocity.randomDirection().multiplyScalar(2+Math.random()*4);fragment.spin.randomDirection();}
+    return burst;
   }
   function clear(){for(const burst of bursts)release(burst);bursts.length=0;}
   function spawn(position,attitude,orbital=false){
     const a=resources();
-    if(bursts.length>=maxBursts)release(bursts.shift());
+    if(bursts.length>=activeLimit)release(bursts.shift());
+    if(idle.length){bursts.push(recycle(idle.pop(),position,attitude,orbital));return;}
     const root=new T.Group();root.name='Enemy destruction';root.position.copy(position);parent.add(root);
     const materials=[],puffs=[];
     const sprite=(map,color,additive)=>{
@@ -94,14 +108,17 @@ export function createEnemyExplosions(parent) {
       if(t>=1.9||b.root.position.z>35){release(b);bursts.splice(i,1);continue;}
       b.flash.visible=t<.18;b.flash.scale.setScalar(1.5+9*t);b.flash.material.opacity=Math.pow(Math.max(0,1-t/.18),2);
       b.ring.visible=t<.5;b.ring.quaternion.copy(camera.quaternion);b.ring.scale.setScalar(.4+6*t);b.ring.material.opacity=.55*Math.pow(Math.max(0,1-t/.5),2);
+      let firePuffs=0,smokePuffs=0;
       for(const p of b.puffs){
-        const age=t-p.delay,u=clamp(age/p.duration,0,1);p.mesh.visible=age>=0&&u<1;
+        const allowed=!reducedEffects||(p.smoke?smokePuffs++<2:firePuffs++<3);
+        const age=t-p.delay,u=clamp(age/p.duration,0,1);p.mesh.visible=allowed&&age>=0&&u<1;
         if(!p.mesh.visible)continue;
         p.mesh.position.copy(p.offset).addScaledVector(p.velocity,age);
         p.mesh.scale.setScalar(p.size*(p.smoke?.7+u*2.1:.35+Math.sin(u*Math.PI*.65)*1.5));
         p.mesh.material.opacity=p.smoke?Math.sin(u*Math.PI)*.38:Math.min(1,u*12)*Math.pow(1-u,1.3)*.95;
         if(!p.smoke)p.mesh.material.color.copy(hot).lerp(cool,u);
       }
+      b.sparkGeometry.setDrawRange(0,reducedEffects?28:56);b.debris.count=reducedEffects?6:10;
       b.sparkMesh.visible=t<.9;b.sparkMesh.material.opacity=Math.max(0,1-t/.9);
       for(let j=0;j<b.sparks.length;j++){
         const s=b.sparks[j],age=Math.min(t,s.life),head=(1-Math.exp(-age*2))/2,tail=(1-Math.exp(-Math.max(0,age-.065)*2))/2;
@@ -119,6 +136,10 @@ export function createEnemyExplosions(parent) {
       b.debris.instanceMatrix.needsUpdate=true;
     }
   }
-  function dispose(){clear();if(primer){parent.remove(primer);for(const child of primer.children){if(child.material!==assets.metal)child.material.dispose();if(child.isLine)child.geometry.dispose();if(child.isInstancedMesh)child.dispose();}primer=null;}if(assets){assets.fire.dispose();assets.smoke.dispose();assets.ring.dispose();assets.shard.dispose();assets.metal.dispose();assets=null;}}
-  return {prepare,spawn,update,clear,dispose};
+  function dispose(){clear();for(const b of idle){parent.remove(b.root);for(const m of b.materials)m.dispose();b.sparkGeometry.dispose();b.debris.dispose();}idle.length=0;if(primer){parent.remove(primer);for(const child of primer.children){if(child.material!==assets.metal)child.material.dispose();if(child.isLine)child.geometry.dispose();if(child.isInstancedMesh)child.dispose();}primer=null;}if(assets){assets.fire.dispose();assets.smoke.dispose();assets.ring.dispose();assets.shard.dispose();assets.metal.dispose();assets=null;}}
+  function setQuality(profile){
+    activeLimit=profile.effectLimit;reducedEffects=!profile.effectDetail;
+    while(bursts.length>activeLimit)release(bursts.shift());
+  }
+  return {prepare,spawn,update,clear,dispose,setQuality};
 }

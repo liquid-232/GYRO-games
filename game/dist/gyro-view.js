@@ -21,7 +21,7 @@ const axisLabel = (text, width, height, color) => {
 
 export class GyroPoseView {
   constructor(container, controller, aircraftKind = 'island') {
-    this.container = container; this.controller = controller; this.visible = false; this.frame = null;
+    this.container = container; this.controller = controller; this.visible = false; this.frame = null; this.lastDraw=-Infinity;
     this.$ = id => document.getElementById(id);
     this.renderer = new T.WebGLRenderer({ canvas: this.$('gyroModelCanvas'), antialias: true, alpha: true, powerPreference: 'low-power' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -159,8 +159,10 @@ export class GyroPoseView {
     this.visible = visible && this.controller.selected; this.stop();
     if (this.visible && !document.hidden) { this.resize(); this.draw(); }
   }
-  draw() {
+  draw(now=performance.now()) {
     if (!this.visible || !this.controller.selected || document.hidden || this.contextLost) return;
+    if(now-this.lastDraw<1000/30){this.frame=requestAnimationFrame(time=>this.draw(time));return;}
+    this.lastDraw=now;
     const gyro = this.controller, packet = gyro.feed.packet, live = gyro.fresh;
     if (!gyro.connected) {
       this.hasPose = false; this.body.quaternion.identity();
@@ -180,7 +182,7 @@ export class GyroPoseView {
       const node = this.$(id); if (node.textContent !== text) node.textContent = text;
     }
     this.renderer.render(this.scene, this.camera);
-    this.frame = requestAnimationFrame(() => this.draw());
+    this.frame = requestAnimationFrame(time => this.draw(time));
   }
   dispose() {
     this.disposed = true; this.stop(); this.visible = false; this.observer.disconnect(); document.removeEventListener('visibilitychange', this.onVisibility);

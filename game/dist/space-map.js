@@ -1,4 +1,5 @@
 import * as T from './vendor/three.module.js';
+import {batchStaticMeshes} from './mesh-batch.js';
 import { createEarth } from './earth-model.js';
 import { createOrbitalMaterials } from './orbital-materials.js';
 // Offline orbital scenery. Static mechanical details are batched by material.
@@ -32,7 +33,7 @@ function satellite(){
  box(g,dark,[0,0,0],[5,.14,.2]);
  for(const x of [-1.9,1.9]){box(g,edge,[x,0,0],[2,.10,2]);box(g,solar,[x,.07,0],[1.9,.05,1.9]);}
  const dish=new T.Mesh(new T.SphereGeometry(.7,16,8,0,TAU,0,Math.PI*.35),edge);dish.rotation.z=-.6;dish.position.y=1.;g.add(dish);
- box(g,orange,[.5,.9,.4],[.12,.12,.12]);return g;
+ box(g,orange,[.5,.9,.4],[.12,.12,.12]);return batchStaticMeshes(g);
 }
 let satelliteTemplate;
 export function createOrbitalObstacle(x,y,z,r=1.8,variant=0){
@@ -121,7 +122,7 @@ export function createSpaceMap(scene){
   for(const o of debris){o.mesh.position.z=80-((80-o.startZ-distance)%540+540)%540;o.mesh.rotation.set(o.phase+time*.025,time*.03+o.phase,o.phase*.3);}
  }
  update(0,0);root.visible=false;
- return {root,update,reset:()=>update(0,0),renderReflection(){}};
+ return {root,ready:globe.ready,update,reset:()=>update(0,0),renderReflection(){}};
 }
 export function createThrusters(aircraft){
  const root=new T.Group();root.name='Orbital ion thrusters';aircraft.add(root);

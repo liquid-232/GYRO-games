@@ -18,8 +18,8 @@ export function advanceFrame(seconds, update) {
 // 持续掉帧才降低绘制分辨率；单次长帧、暂停及后台不会触发降质。
 // 稳定恢复后缓慢提高清晰度，避免每帧重建渲染缓冲区。
 export class AdaptiveResolution {
-  constructor(maxRatio) {
-    this.max = Math.min(maxRatio, 1.6); this.min = Math.min(this.max, .85);
+  constructor(maxRatio, {minRatio = .85} = {}) {
+    this.max = Math.min(maxRatio, 1.6); this.min = Math.min(this.max, minRatio);
     this.ratio = this.max; this.windowMs = 0; this.frames = 0; this.healthyMs = 0;
   }
   observe(frameMs, active) {

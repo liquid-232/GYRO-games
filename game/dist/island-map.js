@@ -1,4 +1,5 @@
 import * as T from './vendor/three.module.js';
+import {batchStaticMeshes} from './mesh-batch.js';
 
 // Original, deterministic archipelago. All geometry is generated locally;
 // recycling moves whole islands, with no geometry allocation during flight.
@@ -124,7 +125,8 @@ function shore(rx,rz,seed,height) {
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);
   const mesh=new T.Mesh(g,shoreMaterial);mesh.name='Shallow water and surf';return mesh;
 }
-function station(group,height,variant) {
+function station(parent,height,variant) {
+  const group=new T.Group();group.name='Static island station';
   const y=height+.04;
   box(group,concrete,0,y,0,7,.7,5);
   if(variant%2===0) {
@@ -138,6 +140,7 @@ function station(group,height,variant) {
     for(const x of [-2.9,2.9]) for(const z of [-1.9,1.9]) box(group,beacon,x,y+.4,z,.18,.13,.18);
     box(group,metal,4,y+.6,0,1.2,1.1,1.7);
   }
+  parent.add(batchStaticMeshes(group));
 }
 function sky() {
   return new T.Mesh(new T.SphereGeometry(480,32,20),new T.ShaderMaterial({side:T.BackSide,depthWrite:false,
@@ -155,15 +158,17 @@ function sky() {
 }
 function ocean() {
   const geometry=new T.PlaneGeometry(1400,1400,1,1);geometry.rotateX(-Math.PI/2);
-  const material=new T.ShaderMaterial({uniforms:{uTime:time,uDistance:{value:0},uReflection:{value:null},uReflectionMatrix:{value:new T.Matrix4()},uReflectionReady:{value:0},uTexel:{value:new T.Vector2(1/768,1/432)},uSun:{value:COAST_SUN}},
+  const material=new T.ShaderMaterial({uniforms:{uTime:time,uDistance:{value:0},uReflection:{value:null},uReflectionMatrix:{value:new T.Matrix4()},uReflectionReady:{value:0},uWaterDetail:{value:1},uTexel:{value:new T.Vector2(1/768,1/432)},uSun:{value:COAST_SUN}},
     vertexShader:`varying vec3 vWorld;varying vec4 vMirror;uniform mat4 uReflectionMatrix;
       void main(){vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;vMirror=uReflectionMatrix*p;gl_Position=projectionMatrix*viewMatrix*p;}`,
-    fragmentShader:`uniform float uTime;uniform float uDistance;uniform sampler2D uReflection;uniform float uReflectionReady;
+    fragmentShader:`uniform float uTime;uniform float uDistance;uniform sampler2D uReflection;uniform float uReflectionReady;uniform float uWaterDetail;
       uniform vec2 uTexel;uniform vec3 uSun;varying vec3 vWorld;varying vec4 vMirror;
       ${waterNoise}
       float waves(vec2 p,float t){
         float swell=sin(dot(p,vec2(.21,.34))+t*.65)*.25+sin(dot(p,vec2(-.37,.18))-t*.48)*.14;
-        return swell+noise21(p*vec2(.67,1.5)+vec2(t*.16,-t*.23))*.42+noise21(p*vec2(1.9,3.7)-t*.25)*.19;
+        float wave=swell+noise21(p*vec2(.67,1.5)+vec2(t*.16,-t*.23))*.42;
+        if(uWaterDetail>.5)wave+=noise21(p*vec2(1.9,3.7)-t*.25)*.19;
+        return wave;
       }
       void main(){vec2 p=vWorld.xz+vec2(0.,-uDistance);float t=uTime;
         float wave=waves(p,t),a=waves(p+vec2(.12,0.),t)-wave,b=waves(p+vec2(0.,.12),t)-wave;
@@ -183,6 +188,7 @@ function ocean() {
         float spec=D*Gv*Gl*F/max(.004,4.*nv*nl);
         vec3 reflectedDirection=reflect(-view,n);
         vec3 reflected=mix(vec3(.25,.39,.44),vec3(.065,.18,.3),pow(max(0.,reflectedDirection.y),.48));
+        if(uReflectionReady>.5){
         vec2 uv=vMirror.xy/max(.001,vMirror.w);
         vec2 distortion=n.xz*.10*clamp(22./max(dist,1.),.22,1.);
         vec2 q=clamp(uv+distortion,uTexel*2.,1.-uTexel*2.);
@@ -190,7 +196,8 @@ function ocean() {
         vec2 blur=uTexel*(.7+(1.-detail)*1.3);
         vec3 mirror=texture2D(uReflection,q).rgb*.4;
         mirror+=(texture2D(uReflection,q+vec2(blur.x,0.)).rgb+texture2D(uReflection,q-vec2(blur.x,0.)).rgb+texture2D(uReflection,q+vec2(0.,blur.y)).rgb+texture2D(uReflection,q-vec2(0.,blur.y)).rgb)*.15;
-        reflected=mix(reflected,mirror,edge*uReflectionReady);
+        reflected=mix(reflected,mirror,edge);
+        }
         vec3 deep=vec3(.009,.057,.082)+vec3(.007,.024,.026)*wave;
         vec3 color=mix(deep,reflected,clamp(fresnel*1.15+.12,0.,.92));
         color+=vec3(1.,.85,.64)*min(spec,12.)*nl*2.4;
@@ -205,16 +212,16 @@ function ocean() {
 // A planar scene reflection, not hardware ray tracing. One capped half-size pass;
 // the main camera's projection is preserved and objects below the sea are clipped.
 function createWaterReflection(sea,shores) {
-  let target,lastReflection=-Infinity;const reflectedCamera=new T.PerspectiveCamera(),size=new T.Vector2(),direction=new T.Vector3(),look=new T.Vector3(),up=new T.Vector3();
+  let target,lastReflection=-Infinity,reflectionHz=30,reflectionSize=960;const reflectedCamera=new T.PerspectiveCamera(),size=new T.Vector2(),direction=new T.Vector3(),look=new T.Vector3(),up=new T.Vector3();
   const clip=[new T.Plane(new T.Vector3(0,1,0),-SEA_LEVEL-.02)];
   const bias=new T.Matrix4().set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1);
   const uniforms=sea.material.uniforms;
   function render(renderer,scene,camera,now=performance.now(),prepare=false) {
-    if(camera.position.y<=SEA_LEVEL+.05)return;
-    if(!prepare&&target&&now-lastReflection<1000/30)return;
+    if(!reflectionHz||camera.position.y<=SEA_LEVEL+.05)return;
+    if(!prepare&&target&&now-lastReflection<1000/reflectionHz)return;
     lastReflection=now;
     renderer.getDrawingBufferSize(size);
-    const scale=Math.min(.5,960/Math.max(size.x,size.y));
+    const scale=Math.min(.5,reflectionSize/Math.max(size.x,size.y));
     const width=Math.max(1,Math.round(size.x*scale)),height=Math.max(1,Math.round(size.y*scale));
     if(!target){
       // Linear HDR stays un-tonemapped until the final water pass. Use RGBA8 if float rendering is unavailable.
@@ -247,7 +254,10 @@ function createWaterReflection(sea,shores) {
       renderer.setRenderTarget(oldTarget);renderer.clippingPlanes=oldClip;renderer.toneMapping=oldTone;renderer.xr.enabled=oldXR;renderer.autoClear=oldAutoClear;
     }
   }
-  return {render,dispose(){target?.dispose();}};
+  return {render,setQuality(profile){
+    reflectionHz=profile.reflectionHz;reflectionSize=profile.reflectionSize;
+    uniforms.uWaterDetail.value=profile.waterDetail;uniforms.uReflectionReady.value=0;lastReflection=-Infinity;
+  },dispose(){target?.dispose();}};
 }
 // Shared obstacle geometry: the top is y=1; the base is y=0.
 const stackGeometry=(()=>{
@@ -301,5 +311,5 @@ export function createIslandMap(scene) {
   }
   update(0,0);
   const reflection=createWaterReflection(sea,shores);
-  return {root,islands,update,reset:()=>update(0,0),renderReflection:reflection.render,dispose:reflection.dispose};
+  return {root,islands,update,reset:()=>update(0,0),renderReflection:reflection.render,setQuality:reflection.setQuality,dispose:reflection.dispose};
 }

@@ -51,12 +51,12 @@ export function createEarth(){
  #include <tonemapping_fragment>
  #include <colorspace_fragment>
  }`}));root.add(atmosphere);
- const loader=new T.TextureLoader();
+ const loader=new T.TextureLoader(),pending=[];
  for(const [name,file,color] of [['dayMap','earth-day.jpg',true],['cloudMap','earth-clouds.jpg',false]]){
-  loader.load(new URL(`./assets/earth/${file}`,import.meta.url).href,texture=>{
+  pending.push(new Promise(resolve=>loader.load(new URL(`./assets/earth/${file}`,import.meta.url).href,texture=>{
    texture.colorSpace=color?T.SRGBColorSpace:T.NoColorSpace;texture.wrapS=T.RepeatWrapping;texture.anisotropy=4;
-   uniforms[name].value.dispose();uniforms[name].value=texture;
-  },undefined,()=>console.warn(`Earth texture unavailable: ${file}; retaining fallback`));
+   uniforms[name].value.dispose();uniforms[name].value=texture;resolve();
+  },undefined,()=>{resolve();console.warn(`Earth texture unavailable: ${file}; retaining fallback`);})));
  }
- return {root,update(time){root.rotation.set(.10,2.05+time*.0013,-.12);uniforms.cloudShift.value=time*.000012;}};
+ return {root,ready:Promise.all(pending),update(time){root.rotation.set(.10,2.05+time*.0013,-.12);uniforms.cloudShift.value=time*.000012;}};
 }

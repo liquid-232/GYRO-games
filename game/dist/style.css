@@ -82,3 +82,10 @@ body[data-map=space] .theater-label{background:#0c1426b3}.intro .features{margin
 @media(max-width:1250px){.footer-id{display:none}.controls{gap:10px}}
 @media(max-width:900px){.controls{display:none}}
 @media(max-width:380px){.weapon-controls{width:100%;gap:7px}.missile-skill{flex:1;min-width:0;padding-inline:9px;gap:7px}#fireMode{font-size:10px;padding-inline:10px}#fireMode span{margin-left:10px}}
+
+.graphics-control{display:flex;align-items:center;gap:5px;color:#aab99e;font-size:10px}
+.graphics-control select{background:#1b251a;border:1px solid #8b9b7044;color:#e5e9dc;padding:7px 5px;font:11px var(--body);max-width:75px}
+.render-stats{font:10px var(--mono);color:#9fc9a6;min-width:48px;font-variant-numeric:tabular-nums;text-align:center}
+.render-stats[data-low=true]{color:#f2ac64}
+@media(max-width:1050px){.graphics-control{font-size:0}}
+@media(max-width:700px){.render-stats{display:none}.graphics-control select{font-size:10px;padding:7px 3px;max-width:54px}.top-actions{gap:3px}}
