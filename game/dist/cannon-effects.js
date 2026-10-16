@@ -61,6 +61,9 @@ export function createCannonEffects(parent) {
   }
   const tracerGeometry=flameGeometry([[0,-.38],[.055,-.32],[.095,-.19],[.07,-.02],[.05,.18],[.023,.42],[0,.65]],0);
   const muzzleGeometry=flameGeometry([[0,-1.0],[.07,-.76],[.22,-.42],[.12,-.22],[.055,-.04],[0,.025]],1,5);
+  // 轨道禁区保留原有青绿色激光弹，单独缓存几何与材质。
+  const laserGeometry=new T.CylinderGeometry(.06,.06,1.5,5).rotateX(Math.PI/2);
+  const laserMaterial=new T.MeshBasicMaterial({color:0xaaffdf});
   const root=new T.Group();root.name='Cannon muzzle flashes';root.visible=false;parent.add(root);
   const flashes=[-1,1].map(side=>{
     const mesh=new T.Mesh(muzzleGeometry,material);mesh.name=side<0?'Left muzzle flash':'Right muzzle flash';
@@ -76,19 +79,23 @@ export function createCannonEffects(parent) {
     const mesh=new T.Mesh(tracerGeometry,material);mesh.name='Cannon incendiary tracer';
     return mesh;
   }
+  function createLaser() {
+    const mesh=new T.Mesh(laserGeometry,laserMaterial);mesh.name='Orbital laser round';
+    return mesh;
+  }
   function trigger(){remaining=duration;firedSinceRender=true;changed=true;}
   function update(dt){uniforms.time.value+=dt;remaining=Math.max(0,remaining-dt);changed=true;}
-  function flush(player,attitude) {
+  function flush(player,attitude,enabled=true) {
     // 低帧率的追赶子步中即使已完成闪焰，也至少在本画面呈现一次射击提示。
     const strength=changed?(firedSinceRender?1:remaining/duration):uniforms.muzzleStrength.value;
     changed=false;firedSinceRender=false;uniforms.muzzleStrength.value=strength;
-    root.visible=strength>.001;root.position.set(player.x,player.y,player.z);root.quaternion.copy(attitude);
+    root.visible=enabled&&strength>.001;root.position.set(player.x,player.y,player.z);root.quaternion.copy(attitude);
     if(root.visible)for(let i=0;i<flashes.length;i++){
       const pulse=Math.sin(uniforms.time.value*173+i*2.1);
       flashes[i].scale.set(1+pulse*.13,1-pulse*.08,.9+pulse*.18);
     }
   }
   function clear(){remaining=0;firedSinceRender=false;changed=false;root.visible=false;uniforms.muzzleStrength.value=0;}
-  function dispose(){clear();parent.remove(root);tracerGeometry.dispose();muzzleGeometry.dispose();material.dispose();}
-  return {root,createTracer,muzzlePosition,trigger,update,flush,clear,dispose};
+  function dispose(){clear();parent.remove(root);tracerGeometry.dispose();muzzleGeometry.dispose();material.dispose();laserGeometry.dispose();laserMaterial.dispose();}
+  return {root,createTracer,createLaser,muzzlePosition,trigger,update,flush,clear,dispose};
 }
