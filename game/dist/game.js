@@ -2,6 +2,7 @@ import * as T from './vendor/three.module.js';
 import { updateTacticalHUD } from './tactical-hud.js';
 import { advanceFrame, AdaptiveResolution } from './frame-timing.js';
 import { createParticleSystem } from './particle-system.js';
+import { createCannonEffects } from './cannon-effects.js';
 import { GyroController } from './gyro.js';
 import { parseAircraft } from './aircraft-model.js';
 import { createSpaceplane, updateSpaceplane } from './spaceplane-model.js';
@@ -48,8 +49,9 @@ const gyro=new GyroController({onInterrupt:message=>{if(mode==='playing'){pause(
 }});
 function permitFlight(){if(gyro.canFly)return true;notice(gyro.pauseMessage);return false;}
 const player={x:0,y:5,z:7},range={x:10,yMin:2.6,yMax:11};
-const materials={laser:new T.MeshBasicMaterial({color:0xaaffdf})};
-const geo={shot:new T.CylinderGeometry(.06,.06,1.5,5),particle:new T.OctahedronGeometry(.14)};
+const geo={particle:new T.OctahedronGeometry(.14)};
+const cannon=createCannonEffects(world);
+window.addEventListener('pagehide',()=>cannon.dispose(),{once:true});
 const particles=createParticleSystem(world,geo.particle);
 window.addEventListener('pagehide',()=>particles.dispose(),{once:true});
 const islandMap=createIslandMap(scene);
@@ -258,7 +260,7 @@ function updateTrackingMissile(s,dt){
  }
  return false;
 }
-function clearList(list){if(list===effects){enemyExplosions.clear();particles.clear();}for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
+function clearList(list){if(list===effects){enemyExplosions.clear();particles.clear();cannon.clear();}for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
 function reset(){if(!permitFlight())return;resetMissileSkill();for(const list of [objects,shots,hostile,effects])clearList(list);hp=5;score=coins=kills=distance=elapsed=0;activeMap.reset();waveIndex=0;level=1;speed=26;invuln=2;spawnTimer=.8;shotTimer=0;shake=0;player.x=0;player.y=5;keys.clear();touch.x=touch.y=0;touch.fire=false;mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;aircraft.visible=true;aircraft.scale.setScalar(.24);aircraft.rotation.set(0,0,0);camera.position.set(0,11,22);$('hitflash').style.opacity=0;for(let i=0;i<7;i++)addCoin(Math.sin(i*.4)*.5,5,-28-i*3);addRock(-6,5,-57,1.8);addEnemy(0,5,-90);if(selectedMap==='space')addGate(0,6.5,-150);notice(selectedMap==='space'?'轨道禁区 · 穿越蓝色环框，避开残骸':'进入群岛战区 · 沿金币航线穿越礁柱');updateHUD();tone(600,.2);}
 let lastHUDAt=-Infinity;
 function updateHUD(now=-Infinity){if(Number.isFinite(now)&&now-lastHUDAt<100)return;lastHUDAt=now;$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(selectedMap==='space'?player.y*10:1600+player.y*160);}
@@ -318,7 +320,15 @@ function spawn(){waveIndex++;
  if(elapsed>4)addEnemy(blocked[0],5+Math.random()*3,-133);
  if(level>=3)addRock(blocked[1],6+Math.random()*2,-139,1.5);
 }
-function fire(){for(const x of [-.62,.62]){const mesh=new T.Mesh(geo.shot,materials.laser);mesh.rotation.x=Math.PI/2;mesh.position.set(player.x+x,player.y,player.z-2);world.add(mesh);shots.push({mesh,life:1.6});}tone(720,.065,'triangle',.012);}
+function fire(){
+ cannon.trigger();
+ for(const side of [-1,1]){
+  const mesh=cannon.createTracer();
+  cannon.muzzlePosition(side,player,aircraft.quaternion,mesh.position);
+  world.add(mesh);shots.push({mesh,life:1.6});
+ }
+ tone(170,.065,'sawtooth',.018);
+}
 function removeObject(index){const o=objects[index];world.remove(o.mesh);if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}objects.splice(index,1);}
 function advanceGame(dt){
  const motion=gyro.sample(Math.min(dt,.25));
@@ -343,14 +353,14 @@ function tick(dt,motion=gyro.sample(dt)){if(mode!=='playing'||(gyro.selected&&!g
  }
  for(let i=hostile.length-1;i>=0;i--){const b=hostile[i];b.mesh.position.addScaledVector(b.vel,dt);b.life-=dt;b.age+=dt;animateEnemyMissile(b.mesh,b.age,b.flamePhase);if(b.mesh.position.distanceTo(new T.Vector3(player.x,player.y,player.z))<.9){damage();b.life=0;if(mode==='over')return;}if(b.life<=0||b.mesh.position.z>30){world.remove(b.mesh);hostile.splice(i,1);}}
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=dt;e.mesh.position.addScaledVector(e.vel,dt);e.mesh.material.opacity=Math.max(0,e.life);if(e.life<=0){world.remove(e.mesh);e.mesh.material.dispose();effects.splice(i,1);}}
- particles.update(dt);
+ particles.update(dt);cannon.update(dt);
  enemyExplosions.update(dt,speed,camera);
  activeMap.update(distance,elapsed);
  return true;}
 async function prepareCombatRendering(){
  const warmup=new T.Group();warmup.name='Combat material warmup';warmup.visible=false;
  warmup.add(createEnemyAircraft(),createEnemyMissile(new T.Vector3(0,0,1)),createPlayerMissile(new T.Vector3(0,0,-1)),createMoraCoin(),
-  new T.Mesh(geo.shot,materials.laser),createSeaStack(0,5,-30).mesh,createOrbitalObstacle(0,5,-30).mesh,createOrbitalGate(0,5,-40).mesh);
+  cannon.createTracer(),createSeaStack(0,5,-30).mesh,createOrbitalObstacle(0,5,-30).mesh,createOrbitalGate(0,5,-40).mesh);
  world.add(warmup);enemyExplosions.prepare(renderer);
  camera.position.set(0,11,22);camera.lookAt(0,5,-24);
  aircraft.position.set(0,5,7);aircraft.scale.setScalar(.24);
@@ -382,7 +392,7 @@ function animate(now=performance.now()){
  if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}
  const ratio=resolution.observe(rawDt*1000,mode==='playing'&&!document.hidden&&(!gyro.selected||gyro.fresh));
  if(ratio!=null)renderer.setPixelRatio(ratio);
- particles.flush();updateHUD(now);updateMissileHUD();
+ particles.flush();cannon.flush(player,aircraft.quaternion);updateHUD(now);updateMissileHUD();
  updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);
  if(spaceAircraft&&selectedMap==='space')updateSpaceplane(spaceAircraft,mode==='menu'?menuTime:elapsed,mode!=='menu');
  activeMap.renderReflection(renderer,scene,camera,now);
