@@ -8,3 +8,15 @@ firmware/*-latest.log
 game/.runtime/
 
 gravity-maze/.runtime/
+
+# Native build outputs, engine caches and third-party SDKs stay local.
+native/.runtime/
+native/unreal/Binaries/
+native/unreal/Intermediate/
+native/unreal/Saved/
+native/unreal/DerivedDataCache/
+native/unreal/.vs/
+native/unreal/*.sln
+native/unreal/*.suo
+native/unreal/Plugins/ThirdParty/
+native/unreal/Content/Skystrike/Imported/
