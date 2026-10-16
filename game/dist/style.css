@@ -65,3 +65,20 @@ body[data-map=space] .theater-label{background:#0c1426b3}.intro .features{margin
 .gyro-metrics b{white-space:nowrap;font-size:16px}
 .gyro-delay-note{font-size:10px;line-height:1.65;color:#8c9b88;margin:9px 0 0}
 @media(max-width:380px){.gyro-metrics b{font-size:14px}}
+
+/* 冷启动导弹技能：桌面与触屏共用按钮，底部条显示冷却进度。 */
+.weapon-controls{display:flex;align-items:center;gap:9px;flex-shrink:0;margin-left:auto}
+.missile-skill{position:relative;display:flex;align-items:center;gap:10px;min-width:176px;min-height:44px;padding:7px 13px 9px;text-align:left;background:#172b26;border-color:#77c4ad66;overflow:hidden;touch-action:manipulation}
+.missile-skill kbd{margin:0;min-width:24px;text-align:center;color:#b6dfcb;border-color:#8ccdb069;background:#a3d8ba14}
+.missile-copy{display:flex;flex-direction:column;gap:4px;white-space:nowrap}
+.missile-copy b{font-size:11px;letter-spacing:.5px;font-weight:600}
+#missileStatus{font:10px var(--body);font-variant-numeric:tabular-nums;color:#a4bbae}
+.missile-meter{position:absolute;inset:auto 0 0;height:3px;background:#81aa9433;pointer-events:none}
+.missile-meter i{display:block;height:100%;width:100%;background:#91cfad;transform-origin:left}
+.missile-skill:disabled{opacity:.7}
+.missile-skill[data-ready=true]{border-color:#96dfb7;background:#244536;box-shadow:inset 0 0 16px #9be4bb0a}
+.missile-skill[data-ready=true] #missileStatus{color:#b7f1cb}
+.missile-skill[data-ready=true]:hover{background:#315b45;border-color:#ceffdd}
+@media(max-width:1250px){.footer-id{display:none}.controls{gap:10px}}
+@media(max-width:900px){.controls{display:none}}
+@media(max-width:380px){.weapon-controls{width:100%;gap:7px}.missile-skill{flex:1;min-width:0;padding-inline:9px;gap:7px}#fireMode{font-size:10px;padding-inline:10px}#fireMode span{margin-left:10px}}

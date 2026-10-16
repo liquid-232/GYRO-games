@@ -44,7 +44,7 @@
     <div class="mission-rule"><span id="missionType">海岛空域 / 空中拦截</span><b id="areaCode">01—AO</b></div>
     <div class="map-select" role="group" aria-label="选择战场"><button id="mapIsland" class="map-option" aria-pressed="false"><span class="map-symbol island-symbol" aria-hidden="true"></span><span><small>01 / MARITIME</small>群岛战区</span></button><button id="mapSpace" class="map-option" aria-pressed="true"><span class="map-symbol orbit-symbol" aria-hidden="true"></span><span><small>02 / ORBITAL</small>轨道禁区</span></button></div>
     <p id="introText">低空突入群岛，突破敌方封锁。<br>沿航线收集补给，规避礁柱，清除空中威胁。</p>
-    <div class="features"><span><b>01</b> 收集摩拉</span><span><b>02</b> 规避障碍</span><span><b>03</b> 击毁目标</span></div>
+    <div class="features"><span><b>01</b> 收集摩拉</span><span><b>02</b> 规避障碍</span><span><b>03</b> Q 跟踪导弹</span></div>
     <button id="start" class="primary" disabled>正在装载战机 <span>↗</span></button>
     <p class="best">最佳战绩 <b id="best">000000</b><span>PERSONAL RECORD</span></p>
   </div>
@@ -53,6 +53,6 @@
 </section>
 <section id="pauseOverlay" class="modal hidden"><div><span class="eyebrow">TACTICAL PAUSE / 任务暂停</span><h2>飞行已暂停</h2><p id="pauseReason">准备好后继续任务。</p><button id="resume" class="primary">继续飞行 ↗</button><button id="returnLobby" class="lobby-button">返回大厅</button></div></section>
 <section id="endOverlay" class="modal hidden"><div><span class="eyebrow">AFTER ACTION / 作战报告</span><h2>任务结束</h2><div id="report"></div><button id="restart" class="primary">再次出击 ↗</button><button id="endLobby" class="lobby-button">返回大厅 / 切换战场</button></div></section>
-<footer><div class="controls"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd> 移动</span><span><kbd>SPACE</kbd> 开火</span><span><kbd>F</kbd> 切换模式</span></div><button id="fireMode" aria-pressed="true">自动开火 <span>ON</span></button><span id="controlHint" class="footer-id">蓝牙倾斜移动 · 空格开火 · P 暂停</span></footer>
+<footer><div class="controls"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd> 移动</span><span><kbd>SPACE</kbd> 开火</span><span><kbd>F</kbd> 切换模式</span></div><div class="weapon-controls"><button id="missileSkill" class="missile-skill" type="button" disabled title="Q：冷启动跟踪导弹 · 12 秒冷却" aria-label="冷启动跟踪导弹，出击后可用，快捷键 Q"><kbd>Q</kbd><span class="missile-copy"><b>冷启动跟踪导弹</b><span id="missileStatus">出击后可用</span></span><span class="missile-meter" aria-hidden="true"><i id="missileProgress"></i></span></button><button id="fireMode" aria-pressed="true">自动开火 <span>ON</span></button></div><span id="controlHint" class="footer-id">蓝牙倾斜移动 · 空格开火 · P 暂停</span></footer>
 <div id="touch"><div id="stick" aria-label="拖动控制飞机"><div id="thumb"></div></div><button id="touchFire" aria-label="按住开火">FIRE</button></div>
 <div id="loadError" class="hidden" role="alert"></div></main><script type="module" src="lifecycle.js"></script><script type="module" src="game.js"></script></body></html>

@@ -2,11 +2,12 @@ import * as T from './vendor/three.module.js';
 
 // Original visual asset. Local +Z points toward the target; the exhaust is -Z.
 // All instances share immutable geometry/materials (three draws per missile).
-let template;
+let template, playerTemplate;
 const forward = new T.Vector3(0, 0, 1);
 
-function buildMissile() {
-  const root = new T.Group(); root.name = 'enemy-missile';
+function buildMissile(player = false) {
+  const root = new T.Group(); root.name = player ? 'player-tracking-missile' : 'enemy-missile';
+  const marking = player ? 0x49bdb0 : 0xc94232;
   const positions = [], normals = [], colors = [];
   const add = (geometry, color) => {
     const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -24,8 +25,8 @@ function buildMissile() {
   };
   cylinder(.115, .125, .96, -.04, 0xcbd5d8);
   add(new T.ConeGeometry(.115, .36, 12).rotateX(Math.PI / 2).translate(0, 0, .62), 0x293442);
-  cylinder(.121, .121, .055, .29, 0xc94232);
-  cylinder(.129, .129, .07, -.39, 0xc94232);
+  cylinder(.121, .121, .055, .29, marking);
+  cylinder(.129, .129, .07, -.39, marking);
   cylinder(.12, .09, .13, -.565, 0x3b424c);
   add(new T.TorusGeometry(.085, .018, 4, 12).translate(0, 0, -.635), 0x959da7);
 
@@ -66,8 +67,8 @@ function buildMissile() {
     const material=new T.MeshBasicMaterial({color,transparent:true,opacity,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,forceSinglePass:true,toneMapped:false});
     const mesh=new T.Mesh(g,material);mesh.renderOrder=1;exhaust.add(mesh);
   };
-  flame(.13,1.12,0xff5218,.58);
-  flame(.075,.65,0xffefac,.9);
+  flame(.13,1.12,player ? 0x66cfff : 0xff5218,.58);
+  flame(.075,.65,player ? 0xe2faff : 0xffefac,.9);
   root.add(exhaust);
   return root;
 }
@@ -76,6 +77,15 @@ export function createEnemyMissile(velocity) {
   template ??= buildMissile();
   const missile=template.clone(true);
   if(velocity.lengthSq()>0)missile.quaternion.setFromUnitVectors(forward,velocity.clone().normalize());
+  return missile;
+}
+
+// 玩家弹体使用独立的青色标记和蓝白尾焰，实例间仍共享几何与材质。
+export function createPlayerMissile(velocity) {
+  playerTemplate ??= buildMissile(true);
+  const missile = playerTemplate.clone(true);
+  if (velocity.lengthSq() > 0) missile.quaternion.setFromUnitVectors(forward, velocity.clone().normalize());
+  missile.getObjectByName('missile-exhaust').visible = false;
   return missile;
 }
 
