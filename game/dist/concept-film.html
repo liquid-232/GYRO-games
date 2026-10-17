@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10232d"><title>苍穹突击 · 破晓航线 / 动画概念片</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="./concept-film.css">
+</head>
+<body>
+<canvas id="film" aria-label="苍穹突击六段空战玩法动画"></canvas>
+<div class="vignette" aria-hidden="true"></div><div id="cut" aria-hidden="true"></div>
+<header class="masthead"><a class="brand" href="./index.html"><span class="brand-mark">✦</span><span>苍穹突击<small>SKYSTRIKE / FLIGHT STUDY 01</small></span></a><span class="edition">动画概念片 <i></i> 自动演示</span><button id="fullscreen" class="icon-button" aria-label="进入全屏">⛶</button></header>
+<div class="compass" aria-hidden="true"><span>240</span><span>255</span><b>W</b><span>285</span><span>300</span><i></i></div>
+<section class="hero" id="hero"><span class="eyebrow">OPERATION / FIRST LIGHT</span><h1>破晓航线</h1><p>掠过海面。穿越火线。<br>把每一次机动，变成下一次进攻。</p><div class="hero-spec"><span>F-22A / RAPTOR</span><span>群岛 · 黎明</span></div></section>
+<div class="telemetry" id="telemetry"><small>AIRSPEED</small><b id="speed">820<span>KM/H</span></b><div class="telemetry-rule"></div><small>ALTITUDE</small><strong id="altitude">086</strong><span class="meter-unit">M / SEA LEVEL</span></div>
+<section class="style-panel" id="style-panel"><small>FLIGHT STYLE</small><div><b id="rank">B</b><span id="style-name">CLEAN FLIGHT<small id="score">000000</small></span></div><span class="style-track"><i id="style-fill"></i></span></section>
+<div class="target" id="target" hidden><i></i><span id="target-name">TARGET LOCK</span><small id="target-distance">480 M</small></div>
+<div class="reticle" id="reticle" hidden aria-hidden="true">＋</div>
+<div class="action" id="action" role="status"><span id="action-label"></span><b id="action-points"></b></div>
+<section class="caption" id="caption"><span class="chapter-code" id="chapter-code">01 / 06</span><div><small id="chapter-en">FIRST LIGHT</small><h2 id="chapter-title">破晓 · 出击</h2><p id="chapter-description">冷蓝海天与暖橙尾焰，建立飞机的金属质感。</p></div></section>
+<section class="end-card" id="end-card" hidden><small>SORTIE COMPLETE</small><h2>漂亮的飞行。<br><em>下一次，更大胆。</em></h2><div><b>S</b><p>FLIGHT STYLE<span>18,400 POINTS · 10 SUPPLIES</span></p></div><span class="end-note">画面风格与玩法动画演示</span></section>
+<footer class="player" id="player"><div class="transport"><button id="play" aria-label="暂停动画">Ⅱ</button><button id="restart" aria-label="从头播放">↺</button><time id="clock">00:00 / 01:00</time><label class="seek"><span class="sr-only">动画播放进度</span><input id="seek" type="range" min="0" max="60" step="0.01" value="0"></label><label class="rate"><span class="sr-only">播放速度</span><select id="rate"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select></label><button id="loop" aria-pressed="false">循环</button></div><nav id="chapters" aria-label="跳转演示片段"></nav><p class="player-note">预设镜头与事件动画 · 按空格暂停 / 方向键前后跳转 · 无需连接控制器</p></footer>
+<div class="film-tag">VISUAL CONCEPT <span>/</span> 01 <span>—</span> 2026</div>
+<div class="loading" id="loading"><span></span><b>准备起飞</b><small>正在加载本地飞机模型与场景</small></div>
+<script type="module" src="./concept-film.js"></script><script type="module" src="./lifecycle.js"></script>
+</body></html>
+
+

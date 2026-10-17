@@ -60,6 +60,14 @@ python game/server.py --open
 
 启动游戏后，关闭最后一个游戏网页约 2 秒会自动退出服务和命令窗口；刷新页面会继续运行。Three.js、模型和游戏文件均随项目保存，可离线游玩。
 
+### 空战动画概念片 · 破晓航线
+
+双击 [`game/start-concept-film.cmd`](game/start-concept-film.cmd)，观看 60 秒自动动画：低空穿越、补给拾取、急转避弹、格挡反击、锁定追击和航母核心攻击。支持暂停、拖动进度、章节跳转、速度选择与全屏。此片用于确定画面风格和玩法意图，事件均按时间编排。
+
+[观看 MP4](assets/animations/skystrike-first-light.mp4) · [分镜与启动说明](game/CONCEPT-FILM.md)
+
+![破晓航线：六段空战动画分镜](assets/animations/skystrike-storyboard.jpg)
+
 ## 蓝牙体感：首次使用
 
 1. 断电接线：MPU6050 `VCC → 3V3`、`GND → GND`、`SDA → GPIO4`、`SCL → GPIO5`。
