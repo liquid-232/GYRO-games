@@ -1,3 +1,4 @@
+import { FreeWorld } from './free-world.js';
 import * as T from './vendor/three.module.js';
 import { updateTacticalHUD } from './tactical-hud.js';
 import { advanceFrame } from './frame-timing.js';
@@ -29,7 +30,7 @@ const aircraftSunOffset=new T.Vector3(-32,38,-45);
 let lastShadowAt=-Infinity,lastShadowRadius=0;
 function applyGraphicsQuality(){
  sun.castShadow=selectedMap==='island'&&graphics.profile.shadows;
- islandMap.setQuality(graphics.profile);enemyExplosions.setQuality(graphics.profile);lastShadowAt=-Infinity;
+ islandMap.setQuality(graphics.profile);world.userData.freeSession?.setQuality(graphics.profile);enemyExplosions.setQuality(graphics.profile);lastShadowAt=-Infinity;
 }
 function updateAircraftShadows(now=performance.now()){
  if(!aircraft||!sun.castShadow||selectedMap!=='island'||now-lastShadowAt<1000/graphics.profile.shadowHz)return;
@@ -103,10 +104,48 @@ function selectMap(kind){
 }
 async function chooseBattlefield(kind){
  if(mode!=='menu'||battlefieldPreparing)return;
+ if(world.userData.freeSession)world.userData.freeSession.enabled=false;
+ updateModeButtons(false);
  selectMap(kind);await prepareCurrentBattlefield();
 }
 $('mapIsland').onclick=()=>chooseBattlefield('island');$('mapSpace').onclick=()=>chooseBattlefield('space');
 selectMap(selectedMap);
+
+// 模式适配层统一控制暂停、恢复和退出；自由世界独立维护战斗状态。
+function updateModeButtons(free){
+ $('modeArcade').setAttribute('aria-pressed',String(!free));$('modeFree').setAttribute('aria-pressed',String(free));$('mapSpace').disabled=free;
+ document.querySelector('.features').innerHTML=free?'<span><b>01</b> 自由特技</span><span><b>02</b> 接取任务</span><span><b>03</b> 基地升级</span>':'<span><b>01</b> 收集摩拉</span><span><b>02</b> 规避障碍</span><span><b>03</b> Q 跟踪导弹</span>';
+ if(free){$('introText').textContent='自由驾驶 F-22 探索海岛，接取任务、护送运输机，返回基地升级。支持完整滚转和翻筋斗。';$('missionType').textContent='自由海岛 / 接取任务与成长';}
+}
+function freePause(){
+ if(mode!=='playing')return;mode='paused';keys.clear();touch.x=touch.y=0;touch.fire=false;
+ document.body.classList.remove('playing');$('pauseOverlay').classList.add('hidden');$('thumb').style.transform='';
+}
+function freeEnd(report){
+ mode='over';keys.clear();touch.x=touch.y=0;touch.fire=false;document.body.classList.remove('playing');$('pause').disabled=true;
+ $('report').innerHTML=`本次击毁 <b>${report.kills}</b><br>作战得分 <b>${report.score}</b><br>飞行距离 <b>${(report.distance/1000).toFixed(2)} km</b><br>账户余额 <b>${report.balance} 摩拉</b><br>已获得收益和升级保留，未完成任务可重新接取。`;
+ $('endOverlay').classList.remove('hidden');
+}
+async function chooseGameMode(free){
+ if(mode!=='menu'||battlefieldPreparing)return;
+ if(!free){if(world.userData.freeSession)world.userData.freeSession.enabled=false;selectMap(selectedMap);updateModeButtons(false);return;}
+ selectMap('island');battlefieldPreparing=true;$('renderQuality').disabled=true;$('mapIsland').disabled=$('mapSpace').disabled=true;$('start').disabled=true;$('start').textContent='正在准备自由战场';
+ try{
+  const session=world.userData.freeSession??=new FreeWorld({scene,camera,aircraft,notify:notice,onShot:()=>tone(170,.065,'sawtooth',.018),onKill:()=>tone(140,.22,'sawtooth',.035),onPause:freePause,onResume:()=>pause(),onEnd:freeEnd,canAct:()=>mode==='playing'&&(!gyro.selected||gyro.fresh)});
+  if(new URLSearchParams(location.search).has('debug-free'))window.__freeDebug={session,renderer,camera,gyro,getMode:()=>mode};
+  session.setQuality(graphics.profile);await session.prepare(renderer);session.enabled=true;updateModeButtons(true);
+ }catch(error){notice('自由战场准备失败：'+error.message);if(world.userData.freeSession)world.userData.freeSession.enabled=false;updateModeButtons(false);}
+ finally{battlefieldPreparing=false;$('renderQuality').disabled=false;$('mapIsland').disabled=false;$('mapSpace').disabled=!!world.userData.freeSession?.enabled;$('start').disabled=false;$('start').innerHTML='开始出击 <span>↗</span>';}
+}
+function startFreeFlight(){
+ const session=world.userData.freeSession;
+ resetMissileSkill();for(const list of [objects,shots,hostile,effects])clearList(list);
+ keys.clear();touch.x=touch.y=0;touch.fire=false;score=coins=kills=distance=elapsed=0;
+ mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;
+ islandMap.root.visible=false;if(spaceMap)spaceMap.root.visible=false;session.start();
+}
+$('modeArcade').onclick=()=>chooseGameMode(false);$('modeFree').onclick=()=>chooseGameMode(true);
+window.addEventListener('pagehide',()=>world.userData.freeSession?.dispose(),{once:true});
 
 let audio;function tone(freq,dur,type='sine',vol=.025){if(muted)return;try{audio??=new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,audio.currentTime);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*.45),audio.currentTime+dur);g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur);}catch{}}
 function notice(text){$('notice').textContent=text;$('notice').style.opacity=1;noticeTimer=2.5;}
@@ -142,6 +181,7 @@ function createMissileLockMarker(){
  return marker;
 }
 function updateMissileHUD(){
+ if(world.userData.freeSession?.active)return;
  const skill=missileSkillState(),active=mode==='playing'&&(!gyro.selected||gyro.fresh);
  const inFlight=shots.find(s=>s.kind==='tracking'&&objects.includes(s.target));
  const target=active?(skill.cooldown===0?findMissileTarget():inFlight?.target):null;
@@ -172,6 +212,7 @@ function updateMissileHUD(){
  }
 }
 function launchTrackingMissile(){
+ if(world.userData.freeSession?.active){world.userData.freeSession.launch();return;}
  if(mode!=='playing'||(gyro.selected&&!gyro.fresh))return;
  const skill=missileSkillState();
  if(skill.cooldown>0){notice('导弹冷却中 · '+skill.cooldown.toFixed(1)+' 秒');return;}
@@ -274,13 +315,14 @@ function updateTrackingMissile(s,dt){
  return false;
 }
 function clearList(list){if(list===effects){enemyExplosions.clear();particles.clear();cannon.clear();}for(const o of list){world.remove(o.mesh);if(o.ownedMaterial)o.mesh.material.dispose();if(o.ownedEdges){o.ownedEdges.geometry.dispose();o.ownedEdges.material.dispose();}}list.length=0;}
-function reset(){if(!permitFlight())return;resetMissileSkill();for(const list of [objects,shots,hostile,effects])clearList(list);hp=5;score=coins=kills=distance=elapsed=0;activeMap.reset();waveIndex=0;level=1;speed=26;invuln=2;spawnTimer=.8;shotTimer=0;shake=0;player.x=0;player.y=5;keys.clear();touch.x=touch.y=0;touch.fire=false;mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;aircraft.visible=true;aircraft.scale.setScalar(.24);aircraft.rotation.set(0,0,0);camera.position.set(0,11,22);$('hitflash').style.opacity=0;for(let i=0;i<7;i++)addCoin(Math.sin(i*.4)*.5,5,-28-i*3);addRock(-6,5,-57,1.8);addEnemy(0,5,-90);if(selectedMap==='space')addGate(0,6.5,-150);notice(selectedMap==='space'?'轨道禁区 · 穿越蓝色环框，避开残骸':'进入群岛战区 · 沿金币航线穿越礁柱');updateHUD();tone(600,.2);}
+function reset(){if(!permitFlight())return;if(world.userData.freeSession?.enabled){startFreeFlight();return;}resetMissileSkill();for(const list of [objects,shots,hostile,effects])clearList(list);hp=5;score=coins=kills=distance=elapsed=0;activeMap.reset();waveIndex=0;level=1;speed=26;invuln=2;spawnTimer=.8;shotTimer=0;shake=0;player.x=0;player.y=5;keys.clear();touch.x=touch.y=0;touch.fire=false;mode='playing';document.body.classList.add('playing');$('overlay').classList.add('hidden');$('pauseOverlay').classList.add('hidden');$('endOverlay').classList.add('hidden');$('pause').disabled=false;aircraft.visible=true;aircraft.scale.setScalar(.24);aircraft.rotation.set(0,0,0);camera.position.set(0,11,22);$('hitflash').style.opacity=0;for(let i=0;i<7;i++)addCoin(Math.sin(i*.4)*.5,5,-28-i*3);addRock(-6,5,-57,1.8);addEnemy(0,5,-90);if(selectedMap==='space')addGate(0,6.5,-150);notice(selectedMap==='space'?'轨道禁区 · 穿越蓝色环框，避开残骸':'进入群岛战区 · 沿金币航线穿越礁柱');updateHUD();tone(600,.2);}
 let lastHUDAt=-Infinity;
-function updateHUD(now=-Infinity){if(Number.isFinite(now)&&now-lastHUDAt<100)return;lastHUDAt=now;$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(selectedMap==='space'?player.y*10:1600+player.y*160);}
+function updateHUD(now=-Infinity){if(world.userData.freeSession?.active)return;if(Number.isFinite(now)&&now-lastHUDAt<100)return;lastHUDAt=now;$('score').textContent=String(Math.floor(score)).padStart(6,'0');$('coins').textContent=coins;[...$('health').children].forEach((e,i)=>e.classList.toggle('empty',i>=hp));$('sector').textContent=String(level).padStart(2,'0');$('speed').textContent=`${Math.round(speed*27.7)} KM/H`;$('alt').textContent=Math.round(selectedMap==='space'?player.y*10:1600+player.y*160);}
 function end(){mode='over';document.body.classList.remove('playing');$('pause').disabled=true;const newBest=score>best;best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}$('best').textContent=String(best).padStart(6,'0');$('report').innerHTML=`任务得分 <b>${Math.floor(score)}</b><br>拾取摩拉 <b>${coins}</b><br>击毁目标 <b>${kills}</b><br>飞行距离 <b>${(distance/1000).toFixed(2)} km</b><br>${newBest?'新纪录':'历史最佳'} <b>${best}</b>`;$('endOverlay').classList.remove('hidden');tone(100,.6,'sawtooth',.045);}
-function pause(){if(mode==='playing'){$('pauseReason').textContent='准备好后继续任务。';mode='paused';keys.clear();touch.fire=false;touch.x=touch.y=0;$('thumb').style.transform='';$('pauseOverlay').classList.remove('hidden');document.body.classList.remove('playing');}else if(mode==='paused'){if(!permitFlight()){$('pauseReason').textContent=gyro.pauseMessage;return;}mode='playing';$('pauseOverlay').classList.add('hidden');document.body.classList.add('playing');}}
+function pause(){if(world.userData.freeSession?.panel){world.userData.freeSession.closePanel();return;}if(world.userData.freeSession?.active){world.userData.freeSession.touchThrottle.boost=false;world.userData.freeSession.touchThrottle.brake=false;}if(mode==='playing'){$('pauseReason').textContent='准备好后继续任务。';mode='paused';keys.clear();touch.fire=false;touch.x=touch.y=0;$('thumb').style.transform='';$('pauseOverlay').classList.remove('hidden');document.body.classList.remove('playing');}else if(mode==='paused'){if(!permitFlight()){$('pauseReason').textContent=gyro.pauseMessage;$('pauseOverlay').classList.remove('hidden');return;}mode='playing';$('pauseOverlay').classList.add('hidden');document.body.classList.add('playing');}}
 function returnLobby(){
  if(mode!=='paused'&&mode!=='over')return;
+ if(world.userData.freeSession?.active){world.userData.freeSession.stop();mode='menu';selectMap('island');updateModeButtons(true);}
  best=Math.max(best,Math.floor(score));try{localStorage.setItem('gyro-skystrike-best',best);}catch{}
  $('best').textContent=String(best).padStart(6,'0');
  for(const list of [objects,shots,hostile,effects])clearList(list);
@@ -347,6 +389,8 @@ function removeObject(index){const o=objects[index];world.remove(o.mesh);if(o.ow
 function advanceGame(dt){
  const motion=gyro.sample(Math.min(dt,.25));
  if(mode!=='playing'||(gyro.selected&&!gyro.fresh))return 0;
+ const free=world.userData.freeSession;
+ if(free?.active){const input={roll:motion?motion.x:((keys.has('KeyD')||keys.has('ArrowRight')?1:0)-(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)+touch.x),pitch:motion?motion.y:((keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0)+touch.y),boost:keys.has('ShiftLeft')||keys.has('ShiftRight'),brake:keys.has('ControlLeft')||keys.has('ControlRight')||keys.has('KeyX'),fire:autoFire||keys.has('Space')||touch.fire};return advanceFrame(dt,step=>free.tick(step,input));}
  return advanceFrame(dt,step=>tick(step,motion));
 }
 function tick(dt,motion=gyro.sample(dt)){if(mode!=='playing'||(gyro.selected&&!gyro.fresh))return false;elapsed+=dt;distance+=speed*dt;score+=dt*8;const next=1+Math.floor(elapsed/25);if(next!==level){level=next;notice(`进入第 ${level} 战区 · 威胁提升`);tone(900,.3);}speed=Math.min(48,26+(level-1)*3);invuln=Math.max(0,invuln-dt);shake=Math.max(0,shake-dt);$('hitflash').style.opacity=shake>0?shake*1.5:0;
@@ -412,14 +456,14 @@ function animate(now=performance.now()){
  if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$('notice').style.opacity=0;}
  graphics.record(now,rawDt*1000,mode==='playing'&&(!gyro.selected||gyro.fresh),mode==='menu');
  particles.flush();cannon.flush(player,aircraft.quaternion,selectedMap==='island',shots);updateHUD(now);updateMissileHUD();
- updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);
+ if(world.userData.freeSession?.active){world.userData.freeSession.render(now);document.body.dataset.screen=mode;}else updateTacticalHUD({mode,player,objects,elapsed,distance,kills},now);
  if(spaceAircraft&&selectedMap==='space')updateSpaceplane(spaceAircraft,mode==='menu'?menuTime:elapsed,mode!=='menu');
- activeMap.renderReflection(renderer,scene,camera,now);
+ if(world.userData.freeSession?.active)world.userData.freeSession.map.renderReflection(renderer,scene,camera,now);else activeMap.renderReflection(renderer,scene,camera,now);
  updateAircraftShadows(now);renderer.render(scene,camera);
 }
 
 $('start').onclick=$('restart').onclick=reset;$('pause').onclick=$('resume').onclick=pause;$('returnLobby').onclick=$('endLobby').onclick=returnLobby;$('fireMode').onclick=toggleFire;$('missileSkill').onclick=launchTrackingMissile;$('sound').onclick=()=>{muted=!muted;$('sound').textContent=`音效 ${muted?'OFF':'ON'}`;$('sound').setAttribute('aria-label',muted?'开启音效':'关闭音效');tone(700,.15);};
-window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel'))return;if(e.target.tagName==='BUTTON'&&e.code==='Space'&&mode!=='playing')return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat)pause();return;}if(e.code==='KeyQ'){e.preventDefault();if(!e.repeat)launchTrackingMissile();return;}if(e.code==='KeyF'&&!e.repeat)toggleFire();if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(mode==='playing')pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&mode==='playing')pause();});
+window.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,#gyroPanel'))return;if(e.target.tagName==='BUTTON'&&e.code==='Space'&&mode!=='playing')return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='KeyP'||e.code==='Escape'){if(!e.repeat)pause();return;}if(world.userData.freeSession?.active&&e.code==='KeyM'){e.preventDefault();if(!e.repeat){const free=world.userData.freeSession;if(free.panel)free.closePanel();else free.openPanel('tasks');}return;}if(world.userData.freeSession?.active&&e.code==='KeyR'){if(mode==='playing'&&!e.repeat)world.userData.freeSession.flight.level();return;}if(e.code==='KeyQ'){e.preventDefault();if(!e.repeat)launchTrackingMissile();return;}if(e.code==='KeyF'&&!e.repeat)toggleFire();if(mode==='playing')keys.add(e.code);});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(mode==='playing')pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&mode==='playing')pause();});
 const stick=$('stick');let stickId=null;function stickMove(e){const r=stick.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,mag=Math.max(1,Math.hypot(x,y)/40);touch.x=x/mag/40;touch.y=-y/mag/40;$('thumb').style.transform=`translate(${touch.x*32}px,${-touch.y*32}px)`;}stick.onpointerdown=e=>{stickId=e.pointerId;stick.setPointerCapture(e.pointerId);stickMove(e);};stick.onpointermove=e=>{if(e.pointerId===stickId)stickMove(e);};stick.onpointerup=stick.onpointercancel=()=>{stickId=null;touch.x=touch.y=0;$('thumb').style.transform='';};$('touchFire').onpointerdown=e=>{touch.fire=true;e.target.setPointerCapture(e.pointerId);};$('touchFire').onpointerup=$('touchFire').onpointercancel=()=>touch.fire=false;
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();graphics.resize(innerWidth,innerHeight);});
 graphics.onChange=()=>{applyGraphicsQuality();if(mode==='menu'&&!battlefieldPreparing)void prepareCurrentBattlefield();};
