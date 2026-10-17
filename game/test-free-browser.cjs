@@ -40,7 +40,7 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
  }
  checks.push('simulated BLE/USB samples and stale-data freeze');
  // 海面高速碰撞结束出击，重开保留装甲，任务不续存。
- await page.evaluate(()=>{const s=__freeDebug.session;s.flight.position.set(1100,1,0);s.flight.attitude.setFromAxisAngle({x:1,y:0,z:0},-Math.PI/2);s.flight.speed=115;s.tick(1/30,{});});
+ await page.evaluate(()=>{const s=__freeDebug.session;s.setAssisted(false);s.flight.position.set(1100,1,0);s.flight.attitude.setFromAxisAngle({x:1,y:0,z:0},-Math.PI/2);s.flight.speed=115;s.tick(1/30,{});});
  assert.equal(await page.evaluate(()=>__freeDebug.getMode()),'over');await page.click('#restart');assert.equal(await page.evaluate(()=>__freeDebug.session.hp),6);checks.push('swept crash and upgraded restart');
  const gpu=await page.evaluate(()=>{const gl=__freeDebug.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);});
  console.log(JSON.stringify({checks,gpu,errors}));

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import * as T from './dist/vendor/three.module.js';
 import {FreeFlight,segmentSphere,terrainHit} from './dist/free-flight.js';
 import {FreeProgress,SAVE_KEY} from './dist/free-progress.js';
+import {FreeStyle} from './dist/free-style.js';
 import {FreeMissions} from './dist/free-missions.js';
 import {createIslandMap} from './dist/island-map.js';
 import {updateEnemy} from './dist/free-enemies.js';
@@ -37,3 +38,11 @@ assert.ok(storage.has(SAVE_KEY));
 const scene=new T.Scene(),map=createIslandMap(scene,{fixed:true}),positions=map.islands.map(i=>i.group.position.clone());map.update(900,12);map.islands.forEach((v,i)=>assert.ok(v.group.position.equals(positions[i])));assert.equal(map.heightAt(1199,1199),-3);assert.ok(map.heightAt(520,-320)>-3);map.dispose();
 console.log('PASS: frame-rate consistency, full loops, camera continuity, leveling, boundary return, swept collisions, fixed terrain, mission settlement, upgrade persistence and storage errors.');
 console.log('Largest camera step at 120 Hz:',largest.toFixed(4));
+
+// 辅助操控也必须随游戏时间变化，避免高刷新率下俯仰变慢。
+const assisted=[];
+for(const fps of [15,20,30,60,120]){const pilot=new FreeFlight();pilot.position.set(0,200,0);for(let i=0;i<fps*3;i++)advanceFrame(1/fps,dt=>pilot.update(dt,{assisted:true,roll:.2,pitch:.25}));assisted.push(pilot);}
+for(const pilot of assisted){assert.ok(pilot.position.distanceTo(assisted[3].position)<1.2,'assisted flight timing');assert.ok(pilot.attitude.angleTo(assisted[3].attitude)<.01,'assisted orientation timing');}
+for(const pilot of assisted){for(let i=0;i<180;i++)pilot.update(1/60,{assisted:true});assert.ok(pilot.up.y>.999,'release levels attitude');}
+const style=new FreeStyle();style.kill();style.update(1);style.kill(true);assert.equal(style.combo,2);assert.ok(style.value>200);const beforeDecay=style.value;style.update(9);assert.equal(style.combo,0);assert.ok(style.value<beforeDecay);style.add('parry',200);const beforeDamage=style.value;style.hurt();assert.ok(style.value<beforeDamage);style.reset();assert.equal(style.rank,'D');
+console.log('PASS: assisted flight timing, auto leveling, combo, style decay and damage reset.');

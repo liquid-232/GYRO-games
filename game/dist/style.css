@@ -98,3 +98,23 @@ body[data-map=space] .theater-label{background:#0c1426b3}.intro .features{margin
 @media(max-width:760px){.free-flight .free-objective{top:196px;width:calc(100vw - 28px);max-width:none;font-size:11px}.free-flight .free-toolbar{top:244px;bottom:auto;width:calc(100vw - 28px);justify-content:center;flex-wrap:wrap}.free-flight #notice{top:40%}.free-flight .free-toolbar select{max-width:105px}}
 
 body:not(.playing) .free-toolbar{visibility:hidden}
+
+/* 王牌速战：轻量 DOM 仪表和单批次航迹，保持中心瞄准区通透。 */
+.quick-ace{display:block;width:100%;margin-top:9px;padding:11px 8px;background:#1c403a;color:#bdebd5;border:1px solid #71b69b;font-size:12px}
+.mode-select button{padding:9px 5px;white-space:nowrap;font-size:12px}
+.ace-style{position:absolute;right:28px;top:220px;width:145px;text-align:right;pointer-events:none;color:#ffd57f;transform:skewY(-3deg);text-shadow:0 2px 5px #071412}
+.ace-style small{font:10px var(--mono);letter-spacing:2px}.ace-style>b{display:block;font:italic 800 74px/1.05 var(--mono);letter-spacing:-7px;padding-right:7px}.ace-style span{font-size:12px}.ace-style p{font-size:13px;min-height:20px;margin:8px 0}.ace-style[data-rank^="S"]{color:#9fffe3}
+.ace-meter{height:4px;background:#b6cdbe36;margin:6px 0 9px}.ace-meter i{display:block;background:currentColor;height:100%;transform-origin:left;transition:transform .1s linear}
+.ace-target-hint{position:absolute;left:50%;bottom:155px;transform:translateX(-50%);padding:7px 13px;background:#152723ad;border:1px solid #9cd4b93d;color:#cfffe5;font-size:12px;white-space:nowrap;pointer-events:none}
+.ace-threat{position:absolute;top:190px;left:50%;transform:translateX(-50%);background:#6a2e19da;border:1px solid #ffb469;color:#ffde9f;padding:8px 15px;font-size:13px;pointer-events:none}
+.ace-tutorial{position:absolute;left:50%;bottom:200px;transform:translateX(-50%);font-size:12px;color:#cce4da;background:#162e26cf;padding:10px 16px;white-space:nowrap;pointer-events:none}
+.free-toolbar{max-width:95vw}.free-toolbar button{min-width:56px}.free-toolbar #freeDodge{color:#b7ffe0;border-color:#7fc4a5}.free-toolbar #freeDodge:disabled{color:#8ca099;border-color:#58766e}
+.free-flight #controlHint:after{content:'辅助：左右转向 · Q 齐射 · E 闪避 · X 急转'}
+body:not(.playing) .ace-target-hint,body:not(.playing) .ace-threat,body:not(.playing) .ace-tutorial{visibility:hidden}
+@media(max-width:760px){.ace-style{top:330px;right:16px;width:90px}.ace-style>b{font-size:46px;letter-spacing:-4px}.ace-style small{font-size:8px;letter-spacing:0}.ace-style p{font-size:10px}.ace-style span{font-size:10px}.ace-threat{top:310px;font-size:11px;padding:6px 10px;white-space:nowrap}.ace-target-hint{bottom:216px;font-size:11px}.ace-tutorial{bottom:253px;max-width:90vw;font-size:10px;white-space:normal;width:290px;text-align:center}.free-toolbar{row-gap:5px}.free-flight .free-toolbar label{max-width:155px}.free-flight .free-toolbar select{max-width:125px}.free-flight .free-toolbar button{min-width:48px}.intro .best{margin-top:10px}}
+@media(max-height:700px){.intro .best{display:none}.quick-ace{padding:8px;margin-top:7px}.intro .features{margin:8px 0}.ace-style{top:175px}.ace-tutorial{display:none}.ace-target-hint{bottom:145px}}
+@media(max-height:500px){.quick-ace{font-size:10px;padding:7px}.mode-select button{padding:6px 4px;font-size:10px}.ace-style{top:120px;width:85px}.ace-style>b{font-size:42px}.ace-style p,.ace-style span{display:none}.free-flight .free-toolbar{top:auto;bottom:72px;max-width:68vw}.free-flight .free-objective{top:110px;max-width:55vw;font-size:10px}.ace-threat{top:155px}.ace-target-hint{bottom:123px}}
+
+.free-lock{width:54px;height:54px;border:1px solid #7dffd4;border-radius:50%;font:9px var(--mono);display:grid;place-items:end center;padding-bottom:3px;box-shadow:0 0 0 4px #70e2bb15;color:#baffdf;text-shadow:0 1px 4px #000}
+.free-lock[hidden]{display:none}
+@media(max-width:760px) and (min-height:501px){.ace-style{top:390px}.ace-style p{max-width:85px}.free-flight #notice{top:40%;max-width:92vw}.ace-target-hint{max-width:88vw;white-space:normal;text-align:center}}
