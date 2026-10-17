@@ -149,7 +149,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--open', action='store_true')
-    parser.add_argument('--page', choices=('index.html', 'maze.html', 'spaceplane-preview.html', 'concept-film.html'), default='index.html')
+    parser.add_argument('--page', choices=('index.html', 'maze.html', 'spaceplane-preview.html'), default='index.html')
     parser.add_argument('--auto-close', action='store_true', help='Exit after all game pages close (also enabled by --open)')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
