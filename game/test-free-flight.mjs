@@ -3,8 +3,6 @@ import * as T from './dist/vendor/three.module.js';
 import {FreeFlight,segmentSphere,terrainHit} from './dist/free-flight.js';
 import {FreeProgress,SAVE_KEY} from './dist/free-progress.js';
 import {FreeStyle} from './dist/free-style.js';
-import {FreeMissions} from './dist/free-missions.js';
-import {createIslandMap} from './dist/island-map.js';
 import {updateEnemy} from './dist/free-enemies.js';
 import {advanceFrame} from './dist/frame-timing.js';
 const rightTurn=new FreeFlight();rightTurn.position.set(0,200,0);for(let i=0;i<60;i++)rightTurn.update(1/60,{roll:.3});assert.ok(rightTurn.position.x>0,'right bank turns right');
@@ -25,18 +23,13 @@ assert.equal(segmentSphere(new T.Vector3(-100,0,0),new T.Vector3(100,0,0),new T.
 assert.equal(segmentSphere(new T.Vector3(-100,3,0),new T.Vector3(100,3,0),new T.Vector3(),1),null);
 assert.notEqual(terrainHit(new T.Vector3(-10,2,0),new T.Vector3(10,2,0),(x)=>Math.abs(x)<1?8:0),null,'sweep catches thin terrain at speed');
 const storage=new Map();storage.getItem=storage.get.bind(storage);storage.setItem=storage.set.bind(storage);
-const progress=new FreeProgress(storage),missions=new FreeMissions(progress);
-assert.equal(missions.accept('toString'),false);assert.equal(progress.buy('toString'),false);assert.ok(missions.accept('intercept'));assert.equal(missions.accept('escort'),false);missions.arrive();const id=missions.active.id;
-for(let i=0;i<3;i++)missions.destroyed('interceptor',id);assert.equal(progress.data.balance,300);missions.destroyed('interceptor',id);assert.equal(progress.data.balance,300);
-assert.ok(progress.buy('armor'));assert.equal(progress.health,6);assert.equal(progress.buy('armor'),false);
-missions.accept('strike');missions.arrive();const strike=missions.active.id;missions.destroyed('radar',strike);assert.ok(missions.active);missions.destroyed('turret',strike);missions.destroyed('turret',strike);missions.destroyed('radar',strike);assert.equal(progress.data.balance,400);
-missions.accept('escort');missions.fail();assert.equal(progress.data.completed,2);assert.equal(progress.data.balance,400);
-const loaded=new FreeProgress(storage);assert.equal(loaded.health,6);assert.equal(loaded.data.balance,400);
+const progress=new FreeProgress(storage);
+assert.equal(progress.buy('toString'),false);progress.reward(300,true);assert.ok(progress.buy('armor'));assert.equal(progress.health,6);assert.equal(progress.buy('armor'),false);progress.reward(400,true);
+const loaded=new FreeProgress(storage);assert.equal(loaded.health,6);assert.equal(loaded.data.balance,400);assert.equal(loaded.data.completed,2);
 let warning='';const bad=new FreeProgress({getItem(){return '{';},setItem(){throw Error('must not overwrite');}},s=>warning=s);bad.reward(25);assert.ok(warning);assert.equal(bad.data.balance,25);
 const broken=new FreeProgress({getItem(){return null;},setItem(){throw Error('quota');}},s=>warning=s);warning='';broken.reward(10);assert.match(warning,/保存失败/);
 assert.ok(storage.has(SAVE_KEY));
-const scene=new T.Scene(),map=createIslandMap(scene,{fixed:true}),positions=map.islands.map(i=>i.group.position.clone());map.update(900,12);map.islands.forEach((v,i)=>assert.ok(v.group.position.equals(positions[i])));assert.equal(map.heightAt(1199,1199),-3);assert.ok(map.heightAt(520,-320)>-3);map.dispose();
-console.log('PASS: frame-rate consistency, full loops, camera continuity, leveling, boundary return, swept collisions, fixed terrain, mission settlement, upgrade persistence and storage errors.');
+console.log('PASS: frame-rate consistency, full loops, camera continuity, leveling, boundary return, swept collisions, upgrade persistence and storage errors.');
 console.log('Largest camera step at 120 Hz:',largest.toFixed(4));
 
 // 辅助操控也必须随游戏时间变化，避免高刷新率下俯仰变慢。

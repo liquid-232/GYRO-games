@@ -1,4 +1,4 @@
-// 自由探索使用独立、带版本号的存档；成功结算和购买立即保存。
+// 空战收益独立存档；沿用旧键名以保留已有余额和升级，结算及购买立即保存。
 export const SAVE_KEY='gyro-skystrike-free-v1';
 export const UPGRADES=Object.freeze({armor:{name:'机体装甲',detail:'每级增加 1 格生命'},cannon:{name:'穿甲机炮',detail:'每级增加 20% 伤害'},missile:{name:'导弹整备',detail:'每级减少 1 秒冷却'}});
 const initial=()=>({version:1,balance:0,completed:0,upgrades:{armor:0,cannon:0,missile:0}});

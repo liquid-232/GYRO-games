@@ -61,9 +61,10 @@ export class FreeFlight {
    }
    this.cameraRight.crossVectors(this.forward,this.cameraUp).normalize();
   }
-  this.cameraPosition.copy(this.position).addScaledVector(this.forward,-11).addScaledVector(this.cameraUp,3.2);
+  // 平移先跟随飞机，再平滑相对偏移，避免高速时镜头被远远甩开。
+  this.cameraPosition.copy(this.position).addScaledVector(this.forward,-8).addScaledVector(this.cameraUp,2.4);
   this.cameraTarget.copy(this.position).addScaledVector(this.forward,42);
-  const initial=!this.cameraReady;if(initial){camera.position.copy(this.cameraPosition);this.cameraReady=true;}else camera.position.lerp(this.cameraPosition,1-Math.exp(-8*dt));
+  const initial=!this.cameraReady;if(initial){camera.position.copy(this.cameraPosition);this.cameraReady=true;}else{camera.position.add(this.angular.subVectors(this.position,this.previous));camera.position.lerp(this.cameraPosition,1-Math.exp(-8*dt));}
   this.matrix.lookAt(camera.position,this.cameraTarget,this.cameraUp);this.target.setFromRotationMatrix(this.matrix);
   camera.quaternion.slerp(this.target,initial?1:1-Math.exp(-10*dt));
  }

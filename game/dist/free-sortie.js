@@ -1,5 +1,5 @@
 import * as T from './vendor/three.module.js';
-// 速战与自由任务分开推进。波次结算先切换状态，再写存档，避免重复奖励。
+// 空战按三波推进。波次结算先切换状态，再写存档，避免重复奖励。
 export class FreeSortie {
  constructor(session){this.session=session;this.point=new T.Vector3();this.reset();}
  reset(){this.active=false;this.wave=0;this.wait=0;this.state='idle';this.reward=0;this.defeated=0;}
@@ -21,5 +21,5 @@ export class FreeSortie {
   }
   s.notify(`第 ${this.wave}/3 波 · ${count} 架敌机 · 将目标带入绿色锁定圈，Q 齐射`);
  }
- get description(){if(this.state==='complete')return '三波挑战完成';if(this.state==='incoming')return `第 ${this.wave+1}/3 波 · ${Math.max(1,Math.ceil(this.wait))} 秒后接敌`;return `王牌速战 ${this.wave}/3 · 剩余 ${this.session.enemies.filter(e=>e.alive&&e.role==='ace').length} 架`;}
+ get description(){if(this.state==='complete')return '三波挑战完成';if(this.state==='incoming')return `第 ${this.wave+1}/3 波 · ${Math.max(1,Math.ceil(this.wait))} 秒后接敌`;return `王牌空战 ${this.wave}/3 · 剩余 ${this.session.enemies.filter(e=>e.alive&&e.role==='ace').length} 架`;}
 }

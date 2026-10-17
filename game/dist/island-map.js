@@ -283,17 +283,15 @@ export function createSeaStack(x,y,z,r) {
 }
 const scrubGeometry=new T.IcosahedronGeometry(1,1);
 const scrubMaterial=new T.MeshStandardMaterial({color:0xb2bba3,roughness:1});
-export function createIslandMap(scene, {fixed=false}={}) {
+export function createIslandMap(scene) {
   const root=new T.Group();root.name='Archipelago';scene.add(root);
   const sea=ocean(),dome=sky();root.add(sea);root.add(dome);
-  if(fixed){sea.scale.set(3,1,3);dome.scale.setScalar(8);sea.material.uniforms.uFogDensity.value=.00000035;}
   const islands=[],shores=[],rng=random(605032),period=576;
   for(let i=0;i<12;i++) {
-    const rx=(15+rng()*10)*(fixed?4:1),rz=(19+rng()*14)*(fixed?4:1),h=(6+rng()*11)*(fixed?4:1),seed=rng()*20,side=i%2?1:-1;
+    const rx=(15+rng()*10),rz=(19+rng()*14),h=(6+rng()*11),seed=rng()*20,side=i%2?1:-1;
     const group=new T.Group();group.name=`Island ${i+1}`;
     // Keep shore geometry and solid land outside the player's +/-10 corridor.
     group.position.set(side*(19+rx*1.2+rng()*8),SEA_LEVEL,22-i*48);
-    if(fixed){const layout=[[0,820],[520,-320],[-620,-700],[600,650],[-850,120],[850,-800],[-400,700],[200,-750],[820,100],[-220,-250],[100,200],[-850,850]];group.position.set(layout[i][0],SEA_LEVEL,layout[i][1]);}
     group.add(new T.Mesh(islandGeometry(rx,rz,h,seed),stone));const surf=shore(rx,rz,seed,h);group.add(surf);shores.push(surf);
     if(i%3===0)station(group,terrainHeight(0,0,h,seed),i);
     // Sparse scrub follows the terrain and shares one instanced draw per island.
@@ -308,8 +306,8 @@ export function createIslandMap(scene, {fixed=false}={}) {
     root.add(group);islands.push({group,startZ:group.position.z,rx,rz,h,seed});
   }
   function update(distance,elapsed) {
-    time.value=elapsed;sea.material.uniforms.uDistance.value=fixed?0:distance;
-    if(!fixed)for(const island of islands) island.group.position.z=100-((100-island.startZ-distance)%period+period)%period;
+    time.value=elapsed;sea.material.uniforms.uDistance.value=distance;
+    for(const island of islands) island.group.position.z=100-((100-island.startZ-distance)%period+period)%period;
   }
   update(0,0);
   const reflection=createWaterReflection(sea,shores);
